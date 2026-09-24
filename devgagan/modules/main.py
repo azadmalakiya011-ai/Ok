@@ -1,22 +1,13 @@
 # ---------------------------------------------------
 # File Name: main.py
-# Description: A Pyrogram bot for downloading files from Telegram channels or groups 
-#              and uploading them back to Telegram.
-# Author: Gagan
-# GitHub: https://github.com/devgaganin/
-# Telegram: https://t.me/team_spy_pro
-# YouTube: https://youtube.com/@dev_gagan
-# Created: 2025-01-11
-# Last Modified: 2025-01-11
-# Version: 2.0.5
-# License: MIT License
-# More readable 
+# Description: Fully Dynamic Subject Auto-Grouping & Clickable Links
 # ---------------------------------------------------
 
 import time
 import random
 import string
 import asyncio
+import re
 from pyrogram import filters, Client
 from devgagan import app
 from config import API_ID, API_HASH, FREEMIUM_LIMIT, PREMIUM_LIMIT, OWNER_ID
@@ -25,9 +16,7 @@ from devgagan.core.func import *
 from devgagan.core.mongo import db
 from pyrogram.errors import FloodWait, MessageNotModified
 from datetime import datetime, timedelta
-from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-import subprocess
-from pyrogram.types import Message
+from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 from devgagan.modules.shrink import is_user_verified
 
 async def generate_random_name(length=8):
@@ -37,6 +26,92 @@ users_loop = {}
 interval_set = {}
 batch_mode = {}
 
+# ટાઇટલમાંથી વિષયનું નામ ઓટોમેટિક અલગ કાઢવું
+def extract_clean_subject(text: str) -> str:
+    if not text:
+        return "અન્ય વિડિયો"
+    
+    first_line = text.strip().split("\n")[0]
+    # બિનજરૂરી ચિહ્નો સાફ કરવા
+    clean_line = re.sub(r'https?://\S+|www\.\S+|@\S+', '', first_line).strip()
+    
+    # વિષય અને ચેપ્ટરને અલગ પાડવા માટે વિભાજક (| , - , _ , :)
+    delimiters = ['|', ':', '-', '—', '_', '•']
+    for d in delimiters:
+        if d in clean_line:
+            part = clean_line.split(d)[0].strip()
+            if len(part) >= 3:
+                return part[:35]
+                
+    # જો કોઈ ચિહ્ન ન હોય તો શરૂઆતના થોડા શબ્દો વિષય બનશે
+    words = clean_line.split()
+    if len(words) > 4:
+        return " ".join(words[:4])
+    return clean_line[:35] if clean_line else "અન્ય વિડિયો"
+
+# કોઈપણ નવો વિષય આવે તો તેને ઓટોમેટિક કેટેગરીમાં ઉમેરવું
+async def classify_and_record_link(userbot, link, user_id, start_msg_id, summary_tracker):
+    try:
+        chat, msg_id = None, None
+        clean_link = link.split("?single")[0]
+        if 't.me/c/' in clean_link:
+            parts = clean_link.split("/")
+            chat = int('-100' + parts[parts.index('c') + 1])
+            msg_id = int(parts[-1])
+        elif 't.me/b/' in clean_link:
+            parts = clean_link.split("/")
+            chat = parts[-2]
+            msg_id = int(parts[-1])
+        elif 't.me/' in clean_link:
+            parts = clean_link.split("t.me/")[1].split("/")
+            chat = parts[0]
+            msg_id = int(parts[1])
+
+        raw_title = ""
+        client_to_use = userbot if userbot else app
+        msg = await client_to_use.get_messages(chat, msg_id)
+        if msg:
+            if msg.caption:
+                raw_title = msg.caption
+            elif msg.text:
+                raw_title = msg.text
+            elif msg.video and msg.video.file_name:
+                raw_title = msg.video.file_name
+            elif msg.document and msg.document.file_name:
+                raw_title = msg.document.file_name
+
+        # ઓટોમેટિક વિષય નક્કી થશે
+        subject_name = extract_clean_subject(raw_title)
+        target_jump_url = f"https://t.me/c/{str(user_id).replace('-100', '')}/{start_msg_id}"
+
+        if subject_name not in summary_tracker:
+            summary_tracker[subject_name] = []
+        summary_tracker[subject_name].append(target_jump_url)
+    except Exception:
+        pass
+
+# બેચ પૂરી થયે બધા જ અલગ-અલગ વિષયોનું ક્લિકેબલ લિસ્ટ
+async def send_clickable_summary(client, user_id, summary_tracker, total_count):
+    if not summary_tracker:
+        await client.send_message(user_id, f"🎉 **બેચ સફળતાપૂર્વક પૂર્ણ થઈ ગઈ છે!** (કુલ: {total_count})")
+        return
+
+    text = "📊 **બેચ સમરી (Batch Summary)**\n"
+    text += "━━━━━━━━━━━━━━━━━━━━\n"
+
+    # દરેક વિષય લિસ્ટમાં ઓટોમેટિક ગોઠવાઈ જશે
+    for subject, links in summary_tracker.items():
+        if links:
+            count = len(links)
+            first_url = links[0]
+            text += f"🔹 [{subject} ({count} વિડિયો)]({first_url}) 👈 અહીં દબાવો\n"
+
+    text += "━━━━━━━━━━━━━━━━━━━━\n"
+    text += f"✅ **કુલ અપલોડ થયેલ વિડિયો:** `{total_count}`\n"
+    text += "💡 *જે વિષય પર જવું હોય તેના બ્લુ અક્ષર પર ક્લિક કરો.*"
+
+    await client.send_message(user_id, text, disable_web_page_preview=True)
+
 async def process_and_upload_link(userbot, user_id, msg_id, link, retry_count, message):
     try:
         await get_msg(userbot, user_id, msg_id, link, retry_count, message)
@@ -44,27 +119,23 @@ async def process_and_upload_link(userbot, user_id, msg_id, link, retry_count, m
     finally:
         pass
 
-# Function to check if the user can proceed
 async def check_interval(user_id, freecheck):
-    if freecheck != 1 or await is_user_verified(user_id):  # Premium or owner users can always proceed
+    if freecheck != 1 or await is_user_verified(user_id):
         return True, None
 
     now = datetime.now()
-
-    # Check if the user is on cooldown
     if user_id in interval_set:
         cooldown_end = interval_set[user_id]
         if now < cooldown_end:
             remaining_time = (cooldown_end - now).seconds
             return False, f"Please wait {remaining_time} seconds(s) before sending another link. Alternatively, purchase premium for instant access.\n\n> Hey 👋 You can use /token to use the bot free for 3 hours without any time limit."
         else:
-            del interval_set[user_id]  # Cooldown expired, remove user from interval set
+            del interval_set[user_id]
 
     return True, None
 
 async def set_interval(user_id, interval_minutes=45):
     now = datetime.now()
-    # Set the cooldown interval for the user
     interval_set[user_id] = now + timedelta(seconds=interval_minutes)
 
 @app.on_message(
@@ -74,29 +145,24 @@ async def set_interval(user_id, interval_minutes=45):
 async def single_link(_, message):
     user_id = message.chat.id
 
-    # Check subscription and batch mode
     if await subscribe(_, message) == 1 or user_id in batch_mode:
         return
 
-    # Check if user is already in a loop
     if users_loop.get(user_id, False):
         await message.reply(
             "You already have an ongoing process. Please wait for it to finish or cancel it with /cancel."
         )
         return
 
-    # Check freemium limits
     if await chk_user(message, user_id) == 1 and FREEMIUM_LIMIT == 0 and user_id not in OWNER_ID and not await is_user_verified(user_id):
         await message.reply("Freemium service is currently not available. Upgrade to premium for access.")
         return
 
-    # Check cooldown
     can_proceed, response_message = await check_interval(user_id, await chk_user(message, user_id))
     if not can_proceed:
         await message.reply(response_message)
         return
 
-    # Add user to the loop
     users_loop[user_id] = True
 
     link = message.text if "tg://openmessage" in message.text else get_link(message.text)
@@ -105,11 +171,9 @@ async def single_link(_, message):
 
     try:
         if await is_normal_tg_link(link):
-            # Pass userbot if available; handle normal Telegram links
             await process_and_upload_link(userbot, user_id, msg.id, link, 0, message)
             await set_interval(user_id, interval_minutes=45)
         else:
-            # Handle special Telegram links
             await process_special_links(userbot, user_id, msg, link)
             
     except FloodWait as fw:
@@ -126,7 +190,6 @@ async def single_link(_, message):
             pass
 
 async def initialize_userbot(user_id):
-    """Initialize the userbot session for the given user."""
     data = await db.get_data(user_id)
     if data and data.get("session"):
         try:
@@ -145,12 +208,10 @@ async def initialize_userbot(user_id):
     return None
 
 async def is_normal_tg_link(link: str) -> bool:
-    """Check if the link is a standard Telegram link."""
     special_identifiers = ['t.me/+', 't.me/c/', 't.me/b/', 'tg://openmessage']
     return 't.me/' in link and not any(x in link for x in special_identifiers)
     
 async def process_special_links(userbot, user_id, msg, link):
-    """Handle special Telegram links."""
     if 't.me/+' in link:
         result = await userbot_join(userbot, link)
         await msg.edit_text(result)
@@ -166,7 +227,7 @@ async def batch_link(_, message):
     if join == 1:
         return
     user_id = message.chat.id
-    # Check if a batch process is already running
+
     if users_loop.get(user_id, False):
         await app.send_message(
             message.chat.id,
@@ -181,12 +242,11 @@ async def batch_link(_, message):
 
     max_batch_size = PREMIUM_LIMIT if (freecheck != 1 or user_id in OWNER_ID) else (30 if await is_user_verified(user_id) else FREEMIUM_LIMIT)
         
-    # Start link input
     for attempt in range(3):
         await app.send_photo(
             message.chat.id,
             photo="https://i.postimg.cc/BXkchVpY/image.jpg",
-            caption="Just Copy Post Link And Send it To Me.\n\nजहाँ से शुरू करना है उस पोस्ट का लिंक भेजो\n\nMake sure the link is correct!"
+            caption="Just Copy Post Link And Send it To Me.\n\nજ્યાંથી શરૂ કરવું હોય તે પોસ્ટની લિંક મોકલો\n\nMake sure the link is correct!"
         )
         start = await app.ask(message.chat.id, "🎯 Send The Link For Where I Need To Start Process From \n\n> You Have Only 3 Tries")
         start_id = start.text.strip()
@@ -199,7 +259,6 @@ async def batch_link(_, message):
         await app.send_message(message.chat.id, "Maximum attempts exceeded. Try later.")
         return
 
-    # Number of messages input
     for attempt in range(3):
         num_messages = await app.ask(message.chat.id, f"How many messages do you want to process? 🌝\n> Max limit {max_batch_size}")
         try:
@@ -216,7 +275,6 @@ async def batch_link(_, message):
         await app.send_message(message.chat.id, "Maximum attempts exceeded. Try later.")
         return
 
-    # Validate and interval check
     can_proceed, response_message = await check_interval(user_id, freecheck)
     if not can_proceed:
         await message.reply(response_message)
@@ -232,16 +290,22 @@ async def batch_link(_, message):
     await pin_msg.pin(both_sides=True)
 
     users_loop[user_id] = True
+
+    # ઑટોમેટિક સમરી ટ્રેકર (બધા જ વિષયો માટે)
+    summary_tracker = {}
+
     try:
         normal_links_handled = False
         userbot = await initialize_userbot(user_id)
-        # Handle normal links first
+
+        # Normal Links
         for i in range(cs, cs + cl):
             if user_id in users_loop and users_loop[user_id]:
                 url = f"{'/'.join(start_id.split('/')[:-1])}/{i}"
                 link = get_link(url)
                 if 't.me/' in link and not any(x in link for x in ['t.me/b/', 't.me/c/', 'tg://openmessage']):
                     msg = await app.send_message(message.chat.id, f"Processing...")
+                    await classify_and_record_link(userbot, link, user_id, msg.id, summary_tracker)
                     await process_and_upload_link(userbot, user_id, msg.id, link, 0, message)
                     try:
                         await pin_msg.edit_text(
@@ -265,10 +329,10 @@ async def batch_link(_, message):
                 )
             except Exception:
                 pass
-            await app.send_message(message.chat.id, "😘 𝗖ꪮ𝗺𝗽𝗹𝗲𝘁𝗲 𝗛ꪮ 𝗚𝗮𝘆𝗮 𝗕ꪮ$$ 😎")
+            await send_clickable_summary(app, user_id, summary_tracker, cl)
             return
             
-        # Handle special links with userbot
+        # Special Links (t.me/c/ etc.)
         for i in range(cs, cs + cl):
             if not userbot:
                 await app.send_message(message.chat.id, "Login in bot first ...")
@@ -279,6 +343,7 @@ async def batch_link(_, message):
                 link = get_link(url)
                 if any(x in link for x in ['t.me/b/', 't.me/c/']):
                     msg = await app.send_message(message.chat.id, f"Processing...")
+                    await classify_and_record_link(userbot, link, user_id, msg.id, summary_tracker)
                     await process_and_upload_link(userbot, user_id, msg.id, link, 0, message)
                     try:
                         await pin_msg.edit_text(
@@ -300,7 +365,9 @@ async def batch_link(_, message):
             )
         except Exception:
             pass
-        await app.send_message(message.chat.id, "Batch completed successfully! 🎉")
+
+        # છેલ્લે દરેક વિષયની ક્લિકેબલ લિંક્સ સાથેનો સમરી મેસેજ
+        await send_clickable_summary(app, user_id, summary_tracker, cl)
 
     except Exception as e:
         await app.send_message(message.chat.id, f"Error: {e}")
@@ -326,5 +393,5 @@ async def stop_batch(_, message):
         await app.send_message(
             message.chat.id, 
             "No active batch processing is running to cancel."
-                    )
-        
+    )
+                    
