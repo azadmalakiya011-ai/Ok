@@ -1,6 +1,6 @@
 # ---------------------------------------------------
 # File Name: main.py
-# Description: Fully Dynamic Subject Auto-Grouping & Clickable Links
+# Description: Channel Target Links & Channel Summary Posting
 # ---------------------------------------------------
 
 import time
@@ -26,31 +26,58 @@ users_loop = {}
 interval_set = {}
 batch_mode = {}
 
-# ટાઇટલમાંથી વિષયનું નામ ઓટોમેટિક અલગ કાઢવું
+# ટાઇટલમાંથી સાચો વિષય શોધવો
 def extract_clean_subject(text: str) -> str:
     if not text:
-        return "અન્ય વિડિયો"
+        return "સામાન્ય વિષય"
     
-    first_line = text.strip().split("\n")[0]
-    # બિનજરૂરી ચિહ્નો સાફ કરવા
-    clean_line = re.sub(r'https?://\S+|www\.\S+|@\S+', '', first_line).strip()
-    
-    # વિષય અને ચેપ્ટરને અલગ પાડવા માટે વિભાજક (| , - , _ , :)
+    lines = text.strip().split("\n")
+    target_line = ""
+
+    for line in lines:
+        if "file title" in line.lower():
+            target_line = re.sub(r'(?i)file\s*title\s*[:\-\—]*', '', line).strip()
+            break
+
+    if not target_line:
+        for line in lines:
+            if "topic name" in line.lower() and "topic name: topic" not in line.lower():
+                target_line = re.sub(r'(?i)topic\s*name\s*[:\-\—]*', '', line).strip()
+                break
+            elif "batch name" in line.lower():
+                target_line = re.sub(r'(?i)batch\s*name\s*[:\-\—]*', '', line).strip()
+                break
+
+    if not target_line:
+        for line in lines:
+            if not any(x in line.lower() for x in ["pdf id", "vid id", "id :", "id:"]):
+                if line.strip():
+                    target_line = line.strip()
+                    break
+
+    if not target_line:
+        target_line = lines[0].strip()
+
+    clean = re.sub(r'https?://\S+|www\.\S+|@\S+', '', target_line)
+    clean = re.sub(r'(\.pdf|\.mkv|\.mp4|\[\d+p\]|\(\d+p\))', '', clean, flags=re.IGNORECASE)
+    clean = re.sub(r'(?i)\b(l|lec|lecture)[\-_ ]*\d+\b\s*[:\-\—]*', '', clean).strip()
+
     delimiters = ['|', ':', '-', '—', '_', '•']
     for d in delimiters:
-        if d in clean_line:
-            part = clean_line.split(d)[0].strip()
+        if d in clean:
+            part = clean.split(d)[0].strip()
             if len(part) >= 3:
-                return part[:35]
-                
-    # જો કોઈ ચિહ્ન ન હોય તો શરૂઆતના થોડા શબ્દો વિષય બનશે
-    words = clean_line.split()
-    if len(words) > 4:
-        return " ".join(words[:4])
-    return clean_line[:35] if clean_line else "અન્ય વિડિયો"
+                clean = part
+                break
 
-# કોઈપણ નવો વિષય આવે તો તેને ઓટોમેટિક કેટેગરીમાં ઉમેરવું
-async def classify_and_record_link(userbot, link, user_id, start_msg_id, summary_tracker):
+    words = clean.split()
+    if len(words) > 4:
+        clean = " ".join(words[:4])
+
+    return clean[:30].strip() if clean else "સામાન્ય વિષય"
+
+# વિડિયોનું નામ અને ચેનલ મેસેજ લિંક સાચવવી
+async def classify_and_record_link(userbot, link, user_id, summary_tracker, target_chat_id):
     try:
         chat, msg_id = None, None
         clean_link = link.split("?single")[0]
@@ -80,18 +107,31 @@ async def classify_and_record_link(userbot, link, user_id, start_msg_id, summary
             elif msg.document and msg.document.file_name:
                 raw_title = msg.document.file_name
 
-        # ઓટોમેટિક વિષય નક્કી થશે
         subject_name = extract_clean_subject(raw_title)
-        target_jump_url = f"https://t.me/c/{str(user_id).replace('-100', '')}/{start_msg_id}"
+
+        # જે ચેનલમાં અપલોડ થાય છે તેની છેલ્લી પોસ્ટનો મેસેજ આઈડી
+        target_jump_url = ""
+        if target_chat_id:
+            clean_cid = str(target_chat_id).replace("-100", "")
+            try:
+                # ચેનલનો લેટેસ્ટ મેસેજ આઈડી મેળવી તેની લિંક બનાવવી
+                channel_latest = await app.get_chat_history(target_chat_id, limit=1)
+                async for last_msg in channel_latest:
+                    target_jump_url = f"https://t.me/c/{clean_cid}/{last_msg.id}"
+            except Exception:
+                target_jump_url = f"https://t.me/c/{clean_cid}/1"
+        else:
+            target_jump_url = link  # જો સેટ ન હોય તો ઓરિજિનલ લિંક
 
         if subject_name not in summary_tracker:
             summary_tracker[subject_name] = []
-        summary_tracker[subject_name].append(target_jump_url)
+        if target_jump_url:
+            summary_tracker[subject_name].append(target_jump_url)
     except Exception:
         pass
 
-# બેચ પૂરી થયે બધા જ અલગ-અલગ વિષયોનું ક્લિકેબલ લિસ્ટ
-async def send_clickable_summary(client, user_id, summary_tracker, total_count):
+# સમરી ચેનલ અને બોટ બંનેમાં મોકલવી
+async def send_clickable_summary(client, user_id, summary_tracker, total_count, target_chat_id):
     if not summary_tracker:
         await client.send_message(user_id, f"🎉 **બેચ સફળતાપૂર્વક પૂર્ણ થઈ ગઈ છે!** (કુલ: {total_count})")
         return
@@ -99,17 +139,24 @@ async def send_clickable_summary(client, user_id, summary_tracker, total_count):
     text = "📊 **બેચ સમરી (Batch Summary)**\n"
     text += "━━━━━━━━━━━━━━━━━━━━\n"
 
-    # દરેક વિષય લિસ્ટમાં ઓટોમેટિક ગોઠવાઈ જશે
     for subject, links in summary_tracker.items():
         if links:
             count = len(links)
             first_url = links[0]
-            text += f"🔹 [{subject} ({count} વિડિયો)]({first_url}) 👈 અહીં દબાવો\n"
+            text += f"🔹 [{subject} ({count} ફાઇલો)]({first_url}) 👈 અહીં દબાવો\n"
 
     text += "━━━━━━━━━━━━━━━━━━━━\n"
-    text += f"✅ **કુલ અપલોડ થયેલ વિડિયો:** `{total_count}`\n"
+    text += f"✅ **કુલ અપલોડ થયેલ ફાઇલો:** `{total_count}`\n"
     text += "💡 *જે વિષય પર જવું હોય તેના બ્લુ અક્ષર પર ક્લિક કરો.*"
 
+    # ૧. ચેનલમાં સમરી મોકલવી (જો ચેનલ સેટ હોય)
+    if target_chat_id:
+        try:
+            await client.send_message(target_chat_id, text, disable_web_page_preview=True)
+        except Exception:
+            pass
+
+    # ૨. યુઝરના પર્સનલ બોટમાં પણ સમરી મોકલવી
     await client.send_message(user_id, text, disable_web_page_preview=True)
 
 async def process_and_upload_link(userbot, user_id, msg_id, link, retry_count, message):
@@ -291,7 +338,11 @@ async def batch_link(_, message):
 
     users_loop[user_id] = True
 
-    # ઑટોમેટિક સમરી ટ્રેકર (બધા જ વિષયો માટે)
+    # યુઝરની સેટ કરેલી ચેનલ ID ચેક કરવી
+    user_settings = await db.get_data(user_id)
+    target_chat_id = user_settings.get("chat_id") if user_settings else None
+
+    # સમરી ટ્રેકર
     summary_tracker = {}
 
     try:
@@ -305,8 +356,8 @@ async def batch_link(_, message):
                 link = get_link(url)
                 if 't.me/' in link and not any(x in link for x in ['t.me/b/', 't.me/c/', 'tg://openmessage']):
                     msg = await app.send_message(message.chat.id, f"Processing...")
-                    await classify_and_record_link(userbot, link, user_id, msg.id, summary_tracker)
                     await process_and_upload_link(userbot, user_id, msg.id, link, 0, message)
+                    await classify_and_record_link(userbot, link, user_id, summary_tracker, target_chat_id)
                     try:
                         await pin_msg.edit_text(
                             f"Batch process started ⚡\nProcessing: {i - cs + 1}/{cl}\n\n**__Powered By ╰‿╯ ҡσℓเ ⚝__**",
@@ -329,7 +380,7 @@ async def batch_link(_, message):
                 )
             except Exception:
                 pass
-            await send_clickable_summary(app, user_id, summary_tracker, cl)
+            await send_clickable_summary(app, user_id, summary_tracker, cl, target_chat_id)
             return
             
         # Special Links (t.me/c/ etc.)
@@ -343,8 +394,8 @@ async def batch_link(_, message):
                 link = get_link(url)
                 if any(x in link for x in ['t.me/b/', 't.me/c/']):
                     msg = await app.send_message(message.chat.id, f"Processing...")
-                    await classify_and_record_link(userbot, link, user_id, msg.id, summary_tracker)
                     await process_and_upload_link(userbot, user_id, msg.id, link, 0, message)
+                    await classify_and_record_link(userbot, link, user_id, summary_tracker, target_chat_id)
                     try:
                         await pin_msg.edit_text(
                             f"Batch process started ⚡\nProcessing: {i - cs + 1}/{cl}\n\n**__Powered By ╰‿╯ ҡσℓเ ⚝__**",
@@ -366,8 +417,8 @@ async def batch_link(_, message):
         except Exception:
             pass
 
-        # છેલ્લે દરેક વિષયની ક્લિકેબલ લિંક્સ સાથેનો સમરી મેસેજ
-        await send_clickable_summary(app, user_id, summary_tracker, cl)
+        # છેલ્લે સમરી ચેનલ અને બોટ બંનેમાં મોકલવી
+        await send_clickable_summary(app, user_id, summary_tracker, cl, target_chat_id)
 
     except Exception as e:
         await app.send_message(message.chat.id, f"Error: {e}")
@@ -394,4 +445,4 @@ async def stop_batch(_, message):
             message.chat.id, 
             "No active batch processing is running to cancel."
     )
-                    
+        
