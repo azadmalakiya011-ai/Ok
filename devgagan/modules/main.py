@@ -1,6 +1,6 @@
 # ---------------------------------------------------
 # File Name: main.py
-# Description: Exact Short Subject Name & Correct Channel Link Summary
+# Description: Original Devgagan Core with 'koli' Branding & Fixed Userbot
 # ---------------------------------------------------
 
 import time
@@ -26,28 +26,25 @@ users_loop = {}
 interval_set = {}
 batch_mode = {}
 
-# Fakt mukhya vishaynu naam (Short & Clean) kadhvanu logic
 def extract_clean_subject(text: str) -> str:
     if not text:
         return "અન્ય"
 
     t = text.lower()
-
-    # Mukhya vishayo mate direct keywords check
     subject_map = [
         (["કોમ્પ્યુટર", "computer", "કોમ્પ"], "કોમ્પ્યુટર"),
         (["ગણિત", "maths", "math", "રીઝનીંગ", "reasoning"], "ગણિત અને રીઝનીંગ"),
-        (["ગુજરાતી વ્યાકરણ", "વ્યાકરણ", "vyakaran", "ગુજરાતી ભાષા"], "ગુજરાતી વ્યાકરણ"),
+        (["ગુજરાતી વ્યાકરણ", "વ્યાકરણ", "vyakaran"], "ગુજરાતી વ્યાકરણ"),
         (["ગુજરાતી સાહિત્ય", "સાહિત્ય", "sahitya"], "ગુજરાતી સાહિત્ય"),
         (["અંગ્રેજી", "english", "ઇંગ્લિશ", "eng"], "અંગ્રેજી"),
         (["ઇતિહાસ", "history", "ઈતિહાસ"], "ઇતિહાસ"),
         (["ભૂગોળ", "geography", "ભુગોળ"], "ભૂગોળ"),
         (["બંધારણ", "polity", "constitution"], "બંધારણ"),
         (["વિજ્ઞાન", "science", "સાયન્સ"], "વિજ્ઞાન"),
-        (["કાયદો", "law", "ipc", "crpc", "પુરાવો"], "કાયદો"),
-        (["કરંટ", "current", "current affairs"], "કરંટ અફેર્સ"),
+        (["કાયદો", "law", "ipc", "crpc"], "કાયદો"),
+        (["કરંટ", "current"], "કરંટ અફેર્સ"),
         (["પર્યાવરણ", "environment", "ફોરેસ્ટ"], "પર્યાવરણ"),
-        (["કંડક્ટર", "ડ્રાઈવર", "મોટર વ્હીકલ"], "કંડક્ટર સ્પેશિયલ")
+        (["કંડક્ટર", "ડ્રાઈવર"], "કંડક્ટર સ્પેશિયલ")
     ]
 
     for keywords, name in subject_map:
@@ -55,7 +52,6 @@ def extract_clean_subject(text: str) -> str:
             if kw in t:
                 return name
 
-    # Jo koi mapping na male to vakya mathi faltu shabdo kadhi pehla 1-2 shabdo levana
     lines = text.strip().split("\n")
     target_line = ""
     for line in lines:
@@ -86,8 +82,7 @@ def extract_clean_subject(text: str) -> str:
         return words[0]
     return "અન્ય"
 
-# Vishay ane upload kareli channel ni link record karvi
-async def classify_and_record_link(userbot, link, user_id, summary_tracker, target_chat_id):
+async def record_uploaded_link(link, user_id, summary_tracker, target_chat_id, userbot):
     try:
         chat, msg_id = None, None
         clean_link = link.split("?single")[0]
@@ -105,8 +100,8 @@ async def classify_and_record_link(userbot, link, user_id, summary_tracker, targ
             msg_id = int(parts[1])
 
         raw_title = ""
-        client_to_use = userbot if userbot else app
-        msg = await client_to_use.get_messages(chat, msg_id)
+        c = userbot if userbot else app
+        msg = await c.get_messages(chat, msg_id)
         if msg:
             if msg.caption:
                 raw_title = msg.caption
@@ -137,10 +132,9 @@ async def classify_and_record_link(userbot, link, user_id, summary_tracker, targ
     except Exception:
         pass
 
-# Summary message banavvo ane mokalvo
 async def send_clickable_summary(client, user_id, summary_tracker, total_count, target_chat_id):
     if not summary_tracker:
-        await client.send_message(user_id, f"🎉 **બેચ સફળતાપૂર્વક પૂર્ણ થઈ ગઈ છે!** (કુલ: {total_count})")
+        await client.send_message(user_id, f"🎉 **બેચ સફળતાપૂર્વક પૂર્ણ થઈ ગઈ છે!** (કુલ: {total_count})\n\n**__Powered By ╰‿╯ ҡσℓเ ⚝__**")
         return
 
     text = "📊 **બેચ સમરી (Batch Summary)**\n"
@@ -154,7 +148,8 @@ async def send_clickable_summary(client, user_id, summary_tracker, total_count, 
 
     text += "━━━━━━━━━━━━━━━━━━━━\n"
     text += f"✅ **કુલ અપલોડ થયેલ ફાઇલો:** `{total_count}`\n"
-    text += "💡 *જે વિષય પર જવું હોય તેના બ્લુ અક્ષર પર ક્લિક કરો.*"
+    text += "💡 *જે વિષય પર જવું હોય તેના બ્લુ અક્ષર પર ક્લિક કરો.*\n\n"
+    text += "**__Powered By ╰‿╯ ҡσℓเ ⚝__**"
 
     if target_chat_id:
         try:
@@ -167,9 +162,9 @@ async def send_clickable_summary(client, user_id, summary_tracker, total_count, 
 async def process_and_upload_link(userbot, user_id, msg_id, link, retry_count, message):
     try:
         await get_msg(userbot, user_id, msg_id, link, retry_count, message)
-        await asyncio.sleep(5)
-    finally:
-        pass
+        await asyncio.sleep(4)
+    except Exception as e:
+        print(f"Error: {e}")
 
 async def check_interval(user_id, freecheck):
     if freecheck != 1 or await is_user_verified(user_id):
@@ -229,7 +224,10 @@ async def single_link(_, message):
     finally:
         users_loop[user_id] = False
         if userbot:
-            await userbot.stop()
+            try:
+                await userbot.stop()
+            except Exception:
+                pass
         try:
             await msg.delete()
         except Exception:
@@ -239,8 +237,18 @@ async def initialize_userbot(user_id):
     data = await db.get_data(user_id)
     if data and data.get("session"):
         try:
-            return Client("userbot", api_id=API_ID, api_hash=API_HASH, device_model='iPhone 16 Pro', session_string=data.get("session")).start()
-        except Exception:
+            device = 'iPhone 16 Pro'
+            ub = Client(
+                "userbot",
+                api_id=API_ID,
+                api_hash=API_HASH,
+                device_model=device,
+                session_string=data.get("session")
+            )
+            await ub.start()
+            return ub
+        except Exception as e:
+            print(f"Userbot error: {e}")
             return None
     return None
 
@@ -267,8 +275,8 @@ async def batch_link(_, message):
     max_batch_size = PREMIUM_LIMIT if (freecheck != 1 or user_id in OWNER_ID) else (30 if await is_user_verified(user_id) else FREEMIUM_LIMIT)
         
     for _ in range(3):
-        await app.send_photo(message.chat.id, photo="https://i.postimg.cc/BXkchVpY/image.jpg", caption="જ્યાંથી શરૂ કરવું હોય તે પોસ્ટની લિંક મોકલો:")
-        start = await app.ask(message.chat.id, "🎯 Send The Link:")
+        await app.send_photo(message.chat.id, photo="https://i.postimg.cc/BXkchVpY/image.jpg", caption="Just Copy Post Link And Send it To Me.\n\nજ્યાંથી શરૂ કરવું હોય તે પોસ્ટની લિંક મોકલો:")
+        start = await app.ask(message.chat.id, "🎯 Send The Link For Where I Need To Start Process From \n\n> You Have Only 3 Tries")
         start_id = start.text.strip()
         if start_id.split("/")[-1].isdigit():
             cs = int(start_id.split("/")[-1])
@@ -277,7 +285,7 @@ async def batch_link(_, message):
         return await app.send_message(message.chat.id, "Maximum attempts exceeded.")
 
     for _ in range(3):
-        num_messages = await app.ask(message.chat.id, f"કેટલા મેસેજ પ્રોસેસ કરવા છે? (Max: {max_batch_size})")
+        num_messages = await app.ask(message.chat.id, f"How many messages do you want to process? 🌝\n> Max limit {max_batch_size}")
         try:
             cl = int(num_messages.text.strip())
             if 1 <= cl <= max_batch_size:
@@ -287,7 +295,14 @@ async def batch_link(_, message):
     else:
         return await app.send_message(message.chat.id, "Invalid number.")
 
-    pin_msg = await app.send_message(user_id, f"Batch started ⚡\nProcessing: 0/{cl}")
+    join_button = InlineKeyboardButton("Join Channel", url="https://t.me/SRC_PRO")
+    keyboard = InlineKeyboardMarkup([[join_button]])
+    
+    pin_msg = await app.send_message(
+        user_id,
+        f"Batch process started ⚡\nProcessing: 0/{cl}\n\n**Powered By ╰‿╯ ҡσℓเ ⚝**",
+        reply_markup=keyboard
+    )
     await pin_msg.pin(both_sides=True)
     users_loop[user_id] = True
 
@@ -297,22 +312,36 @@ async def batch_link(_, message):
 
     try:
         userbot = await initialize_userbot(user_id)
+
         for i in range(cs, cs + cl):
-            if user_id in users_loop and users_loop[user_id]:
-                url = f"{'/'.join(start_id.split('/')[:-1])}/{i}"
-                link = get_link(url)
-                if 't.me/' in link:
-                    msg = await app.send_message(message.chat.id, "Processing...")
-                    await process_and_upload_link(userbot, user_id, msg.id, link, 0, message)
-                    await classify_and_record_link(userbot, link, user_id, summary_tracker, target_chat_id)
-                    try:
-                        await pin_msg.edit_text(f"Batch processing ⚡\nProcessing: {i - cs + 1}/{cl}")
-                    except Exception:
-                        pass
+            if not users_loop.get(user_id, False):
+                break
+
+            url = f"{'/'.join(start_id.split('/')[:-1])}/{i}"
+            link = get_link(url)
+
+            if any(x in link for x in ['t.me/b/', 't.me/c/']) and not userbot:
+                await app.send_message(message.chat.id, "⚠️ આ પ્રાઈવેટ ચેનલ છે! કૃપા કરીને પહેલા /login કરો.")
+                break
+
+            msg = await app.send_message(message.chat.id, "Processing...")
+            await process_and_upload_link(userbot, user_id, msg.id, link, 0, message)
+            await record_uploaded_link(link, user_id, summary_tracker, target_chat_id, userbot)
+            
+            try:
+                await pin_msg.edit_text(
+                    f"Batch process started ⚡\nProcessing: {i - cs + 1}/{cl}\n\n**__Powered By ╰‿╯ ҡσℓเ ⚝__**",
+                    reply_markup=keyboard
+                )
+            except Exception:
+                pass
 
         await set_interval(user_id, interval_minutes=300)
         try:
-            await pin_msg.edit_text(f"Batch completed successfully for {cl} messages 🎉")
+            await pin_msg.edit_text(
+                f"Batch completed successfully for {cl} messages 🎉\n\n**__Powered By ╰‿╯ ҡσℓเ ⚝__**",
+                reply_markup=keyboard
+            )
         except Exception:
             pass
 
@@ -322,13 +351,18 @@ async def batch_link(_, message):
         await app.send_message(message.chat.id, f"Error: {e}")
     finally:
         users_loop.pop(user_id, None)
+        if userbot:
+            try:
+                await userbot.stop()
+            except Exception:
+                pass
 
 @app.on_message(filters.command("cancel"))
 async def stop_batch(_, message):
     user_id = message.chat.id
     if user_id in users_loop and users_loop[user_id]:
         users_loop[user_id] = False
-        await app.send_message(message.chat.id, "Batch process stopped successfully.")
+        await app.send_message(message.chat.id, "Batch processing has been stopped successfully.")
     else:
         await app.send_message(message.chat.id, "No active batch running.")
-        
+    
