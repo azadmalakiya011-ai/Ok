@@ -1,7 +1,6 @@
 # ---------------------------------------------------
 # File Name: main.py
-# Description: 100% Working Channel Summary & Exact Own Video Links
-# Author: Gagan | Custom Mod for: ╰‿╯ ҡσℓเ ⚝
+# Description: Fixed Channel Summary with Subject & Direct Channel Link
 # ---------------------------------------------------
 
 import time
@@ -27,7 +26,7 @@ users_loop = {}
 interval_set = {}
 batch_mode = {}
 
-# ટૂંકું અને એકદમ ચોક્કસ વિષયનું નામ કાઢવું
+# વિષયનું શુદ્ધ ગુજરાતી નામ શોધવું
 def extract_clean_subject(text: str) -> str:
     if not text:
         return "અન્ય"
@@ -60,7 +59,7 @@ def extract_clean_subject(text: str) -> str:
     lines = text.strip().split("\n")
     target_line = ""
     for line in lines:
-        if not any(x in line.lower() for x in ["pdf id", "vid id", "id :", "id:"]):
+        if not any(x in line.lower() for x in ["vid id", "pdf id", "batch name", "topic name"]):
             if line.strip():
                 target_line = line.strip()
                 break
@@ -72,8 +71,7 @@ def extract_clean_subject(text: str) -> str:
     clean = re.sub(r'(\.pdf|\.mkv|\.mp4|\[\d+p\]|\(\d+p\))', '', clean, flags=re.IGNORECASE)
     clean = re.sub(r'(?i)\b(l|lec|lecture|class|file title|topic name|batch name)[\-_ ]*\d*\b\s*[:\-\—]*', '', clean).strip()
 
-    delimiters = ['|', ':', '-', '—', '_', '•']
-    for d in delimiters:
+    for d in ['|', ':', '-', '—', '_', '•']:
         if d in clean:
             part = clean.split(d)[0].strip()
             if len(part) >= 2:
@@ -87,91 +85,55 @@ def extract_clean_subject(text: str) -> str:
         return words[0]
     return "અન્ય"
 
-# તમારી પોતાની ચેનલનો જ મેસેજ ID અને લિંક મેળવવી
-async def record_own_channel_link(link, user_id, summary_tracker, target_chat_id, userbot):
+# તમારી જ ચેનલમાંથી છેલ્લો અપલોડ થયેલો મેસેજ અને લિંક મેળવવી
+async def record_own_channel_link(summary_tracker, target_chat_id, user_id):
     try:
-        chat, msg_id = None, None
-        clean_link = link.split("?single")[0]
-        if 't.me/c/' in clean_link:
-            parts = clean_link.split("/")
-            chat = int('-100' + parts[parts.index('c') + 1])
-            msg_id = int(parts[-1])
-        elif 't.me/b/' in clean_link:
-            parts = clean_link.split("/")
-            chat = parts[-2]
-            msg_id = int(parts[-1])
-        elif 't.me/' in clean_link:
-            parts = clean_link.split("t.me/")[1].split("/")
-            chat = parts[0]
-            msg_id = int(parts[1])
-
-        raw_title = ""
-        c = userbot if userbot else app
-        msg = await c.get_messages(chat, msg_id)
-        if msg:
-            if msg.caption:
-                raw_title = msg.caption
-            elif msg.text:
-                raw_title = msg.text
-            elif msg.video and msg.video.file_name:
-                raw_title = msg.video.file_name
-            elif msg.document and msg.document.file_name:
-                raw_title = msg.document.file_name
-
-        subject_name = extract_clean_subject(raw_title)
-
-        # અપલોડ થયેલી ચેનલમાંથી તાજેતરનો મેસેજ પકડવો
-        await asyncio.sleep(1.5)
         effective_chat = target_chat_id if target_chat_id else user_id
-        target_jump_url = ""
+        await asyncio.sleep(2)  # અપલોડ પ્રોસેસ પૂરી થવા માટે ૨ સેકન્ડ થોભવું
 
-        try:
-            async for last_msg in app.get_chat_history(effective_chat, limit=1):
-                clean_cid = str(effective_chat).replace("-100", "")
-                target_jump_url = f"https://t.me/c/{clean_cid}/{last_msg.id}"
-                break
-        except Exception:
-            target_jump_url = ""
+        async for last_msg in app.get_chat_history(effective_chat, limit=1):
+            raw_text = last_msg.caption or last_msg.text or ""
+            if not raw_text and last_msg.video and last_msg.video.file_name:
+                raw_text = last_msg.video.file_name
+            elif not raw_text and last_msg.document and last_msg.document.file_name:
+                raw_text = last_msg.document.file_name
 
-        if subject_name not in summary_tracker:
-            summary_tracker[subject_name] = []
-        if target_jump_url:
+            subject_name = extract_clean_subject(raw_text)
+
+            clean_cid = str(effective_chat).replace("-100", "")
+            target_jump_url = f"https://t.me/c/{clean_cid}/{last_msg.id}"
+
+            if subject_name not in summary_tracker:
+                summary_tracker[subject_name] = []
             summary_tracker[subject_name].append(target_jump_url)
-    except Exception:
-        pass
+            break
+    except Exception as e:
+        print(f"Error in tracking: {e}")
 
 # સમરી યુઝર અને ચેનલ બંનેમાં મોકલવી
 async def send_clickable_summary(client, user_id, summary_tracker, total_count, target_chat_id):
-    if not summary_tracker:
-        text = f"🎉 **બેચ સફળતાપૂર્વક પૂર્ણ થઈ ગઈ છે!** (કુલ: {total_count})\n\n**__Powered By ╰‿╯ ҡσℓเ ⚝__**"
-        await client.send_message(user_id, text)
-        if target_chat_id:
-            try:
-                await client.send_message(target_chat_id, text)
-            except Exception:
-                pass
-        return
-
     text = "📊 **બેચ સમરી (Batch Summary)**\n"
     text += "━━━━━━━━━━━━━━━━━━━━\n"
 
-    for subject, links in summary_tracker.items():
-        if links:
+    if summary_tracker:
+        for subject, links in summary_tracker.items():
             count = len(links)
-            first_url = links[0]  # તમારી ચેનલનો પહેલો વિડિયો
+            first_url = links[0]
             text += f"🔹 [{subject} ({count} ફાઇલો)]({first_url}) 👈 અહીં દબાવો\n"
+    else:
+        text += "🔹 [બધા વિડિયો જોવા માટે અહીં દબાવો](https://t.me) 👈\n"
 
     text += "━━━━━━━━━━━━━━━━━━━━\n"
     text += f"✅ **કુલ અપલોડ થયેલ ફાઇલો:** `{total_count}`\n"
     text += "💡 *જે વિષય પર જવું હોય તેના બ્લુ અક્ષર પર ક્લિક કરો.*\n\n"
     text += "**__Powered By ╰‿╯ ҡσℓเ ⚝__**"
 
-    # ૧. તમારી ટાર્ગેટ ચેનલમાં સમરી મોકલવી
+    # ૧. ચેનલમાં સમરી મોકલવી
     if target_chat_id:
         try:
             await client.send_message(target_chat_id, text, disable_web_page_preview=True)
         except Exception as e:
-            print(f"Channel summary error: {e}")
+            print(f"Channel Summary Send Error: {e}")
 
     # ૨. બોટમાં યુઝરને સમરી મોકલવી
     await client.send_message(user_id, text, disable_web_page_preview=True)
@@ -323,14 +285,14 @@ async def batch_link(_, message):
     await pin_msg.pin(both_sides=True)
     users_loop[user_id] = True
 
-    # ટાર્ગેટ ચેનલ આઈડી ચોક્કસ રીતે મેળવવો
+    # ટાર્ગેટ ચેનલ આઈડી ચોક્કસ રીતે શોધીને ઇન્ટિજરમાં ફેરવવો
     user_settings = await db.get_data(user_id)
     target_chat_id = None
     if user_settings:
-        raw_cid = user_settings.get("chat_id") or user_settings.get("channel") or user_settings.get("target_chat_id")
+        raw_cid = user_settings.get("chat_id")
         if raw_cid:
             try:
-                target_chat_id = int(raw_cid)
+                target_chat_id = int(str(raw_cid).strip())
             except Exception:
                 target_chat_id = raw_cid
     
@@ -353,8 +315,8 @@ async def batch_link(_, message):
             msg = await app.send_message(message.chat.id, "Processing...")
             await process_and_upload_link(userbot, user_id, msg.id, link, 0, message)
             
-            # અપલોડ થયા પછી પોતાની ચેનલનો મેસેજ ટ્રેક કરવો
-            await record_own_channel_link(link, user_id, summary_tracker, target_chat_id, userbot)
+            # અપલોડ થઈ ગયેલા વિડિયોને તમારી ચેનલમાંથી જ સીધો ટ્રેક કરવો
+            await record_own_channel_link(summary_tracker, target_chat_id, user_id)
             
             try:
                 await pin_msg.edit_text(
@@ -373,7 +335,7 @@ async def batch_link(_, message):
         except Exception:
             pass
 
-        # ચેનલ અને બોટ બંનેમાં સમરી મોકલવી
+        # સમરી ચેનલ અને બોટ બંનેમાં મોકલવી
         await send_clickable_summary(app, user_id, summary_tracker, cl, target_chat_id)
 
     except Exception as e:
@@ -394,4 +356,4 @@ async def stop_batch(_, message):
         await app.send_message(message.chat.id, "Batch processing has been stopped successfully.")
     else:
         await app.send_message(message.chat.id, "No active batch running.")
-    
+        
