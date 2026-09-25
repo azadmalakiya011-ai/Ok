@@ -88,6 +88,8 @@ async def delete_session(user_id):
 
 
 # --- રીડીમ કોડ ડેટાબેઝ સિસ્ટમ ---
+from datetime import datetime, timedelta
+
 async def create_redeem_code(code: str, hours: int = 5):
     await db.redeem_codes.insert_one({
         "code": code,
@@ -111,5 +113,6 @@ async def use_redeem_code(code: str, user_id: int):
     
     await db.redeem_codes.delete_one({"code": code})
     return True, f"✅ અભિનંદન! તમારા એકાઉન્ટમાં `{hours}` કલાક માટે પ્રીમિયમ ચાલુ થઈ ગયું છે!\n⏳ પૂર્ણ થવાનો સમય: {expiry.strftime('%Y-%m-%d %I:%M %p')}"
+    
     
  
