@@ -1,6 +1,6 @@
 # ---------------------------------------------------
 # File Name: main.py
-# Description: Auto Channel Scanner & Clickable Topic Summary
+# Description: Auto Channel Scanner & Multi-Part Topic Summary
 # Author: Gagan | Custom Mod for: ╰‿╯ ҡσℓเ ⚝
 # ---------------------------------------------------
 
@@ -27,12 +27,12 @@ users_loop = {}
 interval_set = {}
 batch_mode = {}
 
-# Caption / File Title mathi vishay nu shuddh Gujarati naam kadhvu
+# Caption અથવા File Title માંથી વિષયનું શુદ્ધ ગુજરાતી નામ શોધવું
 def extract_topic_from_text(raw_text: str) -> str:
     if not raw_text:
         return "સામાન્ય વિષય"
 
-    # 1. File Title vali line mathi shodhavu
+    # 1. File Title વાળી લાઇનમાંથી શોધવું
     for line in raw_text.split("\n"):
         if "file title" in line.lower():
             clean = re.sub(r'(?i)file title\s*[:\-\—]*', '', line).strip()
@@ -41,7 +41,7 @@ def extract_topic_from_text(raw_text: str) -> str:
             if clean:
                 return clean[:30]
 
-    # 2. Keywords match karva
+    # 2. કીવર્ડ્સ મેચ કરવા
     t_lower = raw_text.lower()
     subject_map = [
         (["રીઝનીંગ", "reasoning"], "રીઝનીંગ"),
@@ -267,14 +267,14 @@ async def batch_link(_, message):
                 pass
 
 # ---------------------------------------------------
-# Auto Scanner Command: /gen_summary
+# Auto Scanner Command: /gen_summary (Multi-Part Splitter)
 # ---------------------------------------------------
 @app.on_message(filters.command("gen_summary"))
 async def generate_channel_summary_auto(client, message):
     user_id = message.chat.id
     target_chat_id = None
 
-    # 1. Jo command sathe direct ID aapyo hoy: /gen_summary -100xxxxxxxx
+    # 1. જો કમાન્ડ સાથે ચેનલ આઈડી આપ્યો હોય: /gen_summary -100xxxxxxxx
     args = message.text.split()
     if len(args) > 1:
         raw_arg = args[1].strip()
@@ -285,7 +285,7 @@ async def generate_channel_summary_auto(client, message):
         except Exception:
             pass
 
-    # 2. Database mathi save kareli latest Chat ID fetch karvi
+    # 2. ડેટાબેઝમાંથી ચેનલ આઈડી તપાસવો
     if not target_chat_id:
         try:
             user_settings = await db.get_data(user_id)
@@ -304,15 +304,14 @@ async def generate_channel_summary_auto(client, message):
         except Exception as e:
             print(f"Error fetching channel: {e}")
 
-    # Jo haju pan ID na male to alert aapo
     if not target_chat_id:
         return await message.reply(
-            "⚠️ Channel ID mali nathi!\n\n"
-            "Krupya `/settings` ma jaine **Set Chat ID** karo,\n"
-            "Athva direct aam lakho:\n`/gen_summary -100XXXXXXXXXX`"
+            "⚠️ ચેનલ આઈડી મળ્યો નથી!\n\n"
+            "કૃપા કરીને `/settings` માં જઈને **Set Chat ID** કરો,\n"
+            "અથવા સીધું આ રીતે લખો:\n`/gen_summary -100XXXXXXXXXX`"
         )
 
-    status_msg = await message.reply(f"🔍 Channel `{target_chat_id}` mathi video scan thai rahya chhe...")
+    status_msg = await message.reply(f"🔍 ચેનલ `{target_chat_id}` માંથી વીડિયો સ્કેન થઈ રહ્યા છે...")
     userbot = await initialize_userbot(user_id)
     c = userbot if userbot else app
 
@@ -320,7 +319,7 @@ async def generate_channel_summary_auto(client, message):
     clean_dest = str(target_chat_id).replace("-100", "").replace("-", "")
 
     try:
-        # Channel na messages scan karva
+        # ચેનલના બધા જ મેસેજ સ્કેન કરવા
         async for m in c.get_chat_history(target_chat_id):
             if not (m.video or m.document):
                 continue
@@ -350,42 +349,56 @@ async def generate_channel_summary_auto(client, message):
                 summary_data[topic]["videos"] += 1
 
         if not summary_data:
-            return await status_msg.edit_text(f"❌ Channel `{target_chat_id}` ma koi video ke file mali nathi.")
+            return await status_msg.edit_text(f"❌ ચેનલ `{target_chat_id}` માં કોઈ વીડિયો કે ફાઈલ મળી નથી.")
 
-        # Summary text format karvu
-        summary_text = "📌 **Topic Summary**\n\n"
+        # સમરી લાઈનો તૈયાર કરવી
         total_files = 0
+        topic_lines = []
         for topic, stats in summary_data.items():
             url = stats["url"]
             v = stats["videos"]
             p = stats["pdfs"]
             total_files += (v + p)
-            summary_text += f"- [{topic}]({url}) 🎥 {v} | 📄 {p}\n\n"
+            topic_lines.append(f"- [{topic}]({url}) 🎥 {v} | 📄 {p}\n\n")
 
-        summary_text += "━━━━━━━━━━━━━━━━━━━━\n"
-        summary_text += f"✅ **Total Files:** `{total_files}`\n"
-        summary_text += "**__Powered By ╰‿╯ ҡσℓเ ⚝__**"
+        # ૩૦૦૦ અક્ષરોની મર્યાદા રાખીને મેસેજના ટુકડા બનાવવા
+        parts = []
+        curr_part = "📌 **Topic Summary**\n\n"
+        for line in topic_lines:
+            if len(curr_part) + len(line) > 3000:
+                parts.append(curr_part)
+                curr_part = "📌 **Topic Summary (Continued)**\n\n" + line
+            else:
+                curr_part += line
 
-        # Channel ma summary post ane pin karvi
-        ch_msg = None
-        if userbot:
+        curr_part += "━━━━━━━━━━━━━━━━━━━━\n"
+        curr_part += f"✅ **Total Files:** `{total_files}`\n"
+        curr_part += "**__Powered By ╰‿╯ ҡσℓเ ⚝__**"
+        parts.append(curr_part)
+
+        # ચેનલમાં બધા ભાગ ક્રમશઃ મોકલવા અને પહેલા ભાગને પિન કરવો
+        first_msg = None
+        sender = userbot if userbot else app
+
+        for idx, part_text in enumerate(parts):
+            sent = None
             try:
-                ch_msg = await userbot.send_message(target_chat_id, summary_text, disable_web_page_preview=True)
+                sent = await sender.send_message(target_chat_id, part_text, disable_web_page_preview=True)
             except Exception:
-                pass
+                sent = await app.send_message(target_chat_id, part_text, disable_web_page_preview=True)
 
-        if not ch_msg:
-            ch_msg = await app.send_message(target_chat_id, summary_text, disable_web_page_preview=True)
+            if idx == 0 and sent:
+                first_msg = sent
+                try:
+                    await first_msg.pin(both_sides=True)
+                except Exception:
+                    pass
+            await asyncio.sleep(1)
 
-        try:
-            await ch_msg.pin(both_sides=True)
-        except Exception:
-            pass
-
-        await status_msg.edit_text(f"✅ Channel `{target_chat_id}` ma summary moklai gai ane pin thai gai!")
+        await status_msg.edit_text(f"✅ ચેનલ `{target_chat_id}` માં કુલ {len(parts)} ભાગમાં સમરી મોકલાઈ ગઈ અને પિન થઈ ગઈ!")
 
     except Exception as e:
-        await status_msg.edit_text(f"❌ Error aavi: {e}")
+        await status_msg.edit_text(f"❌ Error આવી: {e}")
     finally:
         if userbot:
             try:
@@ -401,4 +414,4 @@ async def stop_batch(_, message):
         await app.send_message(message.chat.id, "Batch processing has been stopped successfully.")
     else:
         await app.send_message(message.chat.id, "No active batch running.")
-                                          
+                
