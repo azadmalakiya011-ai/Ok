@@ -1,285 +1,420 @@
-import time, random, string, asyncio, re
-from pyrogram import filters, Client, enums
+# ---------------------------------------------------
+# File Name: main.py
+# Description: Fully Restored Original Bot with Dynamic Chapter Summary & 5h Redeem
+# Powered By: ╰‿╯ ҡσℓเ ⚝
+# ---------------------------------------------------
+
+import time
+import random
+import string
+import asyncio
+import re
+import secrets
+from pyrogram import filters, Client
 from devgagan import app
 from config import API_ID, API_HASH, FREEMIUM_LIMIT, PREMIUM_LIMIT, OWNER_ID
 from devgagan.core.get_func import get_msg
 from devgagan.core.func import *
 from devgagan.core.mongo import db
+from pyrogram.errors import FloodWait, MessageNotModified
 from datetime import datetime, timedelta
-from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 from devgagan.modules.shrink import is_user_verified
 
-users_loop, interval_set, batch_mode = {}, {}, {}
+async def generate_random_name(length=8):
+    return ''.join(random.choices(string.ascii_lowercase, k=length))
 
-def get_clean_name(text, is_ch=False):
-    t = (text or "").lower()
+users_loop = {}
+interval_set = {}
+batch_mode = {}
 
-    ch_kws = [
-        ("સાદું વ્યાજ", ["સાદું વ્યાજ", "sadu vyaj", "simple interest"]),
-        ("ચક્રવૃદ્ધિ વ્યાજ", ["ચક્રવૃદ્ધિ વ્યાજ", "compound interest"]),
-        ("નફો-ખોટ", ["નફો ખોટ", "નફો અને ખોટ", "nafo khot", "profit"]),
-        ("ટકાવારી", ["ટકાવારી", "takavari", "percent"]),
-        ("ગુણોત્તર-પ્રમાણ", ["ગુણોત્તર", "gunottar", "ratio"]),
-        ("સરેરાશ", ["સરેરાશ", "sarerash", "average"]),
-        ("કામ-સમય", ["કામ સમય", "મહેનતાણું", "kam samay", "work"]),
-        ("નળ-ટાંકી", ["નળ અને ટાંકી", "tanki", "pipe"]),
-        ("ઝડપ-અંતર", ["ઝડપ અને અંતર", "અંતર અને સમય", "speed", "distance"]),
-        ("ટ્રેન", ["ટ્રેન", "train"]),
-        ("હોડી-પ્રવાહ", ["હોડી", "boat"]),
-        ("ભાગીદારી", ["ભાગીદારી", "partnership"]),
-        ("ઉંમર સંબંધિત", ["ઉંમર", "ages", "umar"]),
-        ("ક્ષેત્રફળ-પરિમિતિ", ["ક્ષેત્રફળ", "પરિમિતિ", "area"]),
-        ("સાદુરૂપ", ["સાદુરૂપ", "simplification"])
-    ]
+# Caption mathi Vishay ane Chapter alag kadhvanu logic
+def extract_clean_subject_and_chapter(text: str) -> str:
+    if not text:
+        return "અન્ય ફાઇલો"
+    
+    lines = text.strip().split("\n")
+    target_line = ""
 
-    sub_kws = [
-        ("ગણિત", ["ગણિત", "maths", "math"]),
-        ("રીઝનીંગ", ["રીઝનીંગ", "reasoning"]),
-        ("વિજ્ઞાન", ["વિજ્ઞાન", "science", "સાયન્સ"]),
-        ("બંધારણ", ["બંધારણ", "polity", "constitution"]),
-        ("ગુજરાત ઇતિહાસ", ["ગુજરાતનો ઇતિહાસ", "gujarat history", "gujarat itihas"]),
-        ("ભારત ઇતિહાસ", ["ભારતનો ઇતિહાસ", "indian history", "bharat itihas"]),
-        ("ગુજરાત ભૂગોળ", ["ગુજરાત ભૂગોળ", "gujarat geography"]),
-        ("ભારત ભૂગોળ", ["ભારત ભૂગોળ", "indian geography"]),
-        ("ગુજરાતી વ્યાકરણ", ["ગુજરાતી વ્યાકરણ", "gujarati grammar", "vyakaran"]),
-        ("ગુજરાતી સાહિત્ય", ["સાહિત્ય", "sahitya"]),
-        ("અંગ્રેજી વ્યાકરણ", ["અંગ્રેજી", "english grammar", "english"]),
-        ("કોમ્પ્યુટર", ["કોમ્પ્યુટર", "computer", "comp"]),
-        ("કાયદો", ["કાયદો", "law", "ipc", "crpc"]),
-        ("પંચાયતી રાજ", ["પંચાયતી રાજ", "panchayati raj"]),
-        ("કરંટ અફેર્સ", ["કરંટ અફેર્સ", "current affairs", "current"])
-    ]
+    # 1. File Title mathi chapter/topic pakadvu
+    for line in lines:
+        if "file title" in line.lower():
+            target_line = re.sub(r'(?i)file\s*title\s*[:\-\—]*', '', line).strip()
+            break
+        elif "topic name" in line.lower() and "topic name: topic" not in line.lower():
+            target_line = re.sub(r'(?i)topic\s*name\s*[:\-\—]*', '', line).strip()
+            break
+        elif "batch name" in line.lower():
+            target_line = re.sub(r'(?i)batch\s*name\s*[:\-\—]*', '', line).strip()
+            break
 
-    target_list = ch_kws if is_ch else sub_kws
-    for name, kws in target_list:
-        if any(k in t for k in kws):
-            return name
+    # 2. Jo tag na male to ID vali line chhodine line levani
+    if not target_line:
+        for line in lines:
+            if not any(x in line.lower() for x in ["pdf id", "vid id", "id :", "id:"]):
+                if line.strip():
+                    target_line = line.strip()
+                    break
 
-    for line in (text or "").split("\n"):
-        c = line.strip()
-        c = re.sub(r'(?i)^.*?(file\s*title|topic|chapter|ch|sub)\s*[:\-\—\.]*\s*', '', c).strip()
-        c = re.sub(r'^\d+[\.\-\s_:]+', '', c).strip()
-        c = re.sub(r'(\.pdf|\.mkv|\.mp4|\[\d+p\])', '', c, flags=re.IGNORECASE).strip()
-        c = re.sub(r'(?i)\b(part|lec|lecture|\d+|video)\b.*', '', c).strip()
+    if not target_line:
+        target_line = lines[0].strip()
 
-        if len(c) >= 4 and not re.match(r'^[A-Za-z]{1,3}$', c):
-            if not any(x in c.lower() for x in ["vid id", "pdf id", "batch", "http", "saved by", "uploaded by"]):
-                return c[:20]
+    # Clean unwanted symbols ane extensions
+    clean = re.sub(r'https?://\S+|www\.\S+|@\S+', '', target_line)
+    clean = re.sub(r'(\.pdf|\.mkv|\.mp4|\[\d+p\]|\(\d+p\))', '', clean, flags=re.IGNORECASE)
 
-    return "અન્ય ચેપ્ટર" if is_ch else "અન્ય વિષય"
+    # Delimiters thi separate thaye to vishay + chapter sachu male
+    delimiters = ['|', '—', '•']
+    for d in delimiters:
+        if d in clean:
+            part = clean.split(d)[0].strip()
+            if len(part) >= 3:
+                clean = part
+                break
 
-# વિડિયોનું શોર્ટ નામ (લિંક બનાવવા માટે)
-def get_short_title(text, default_name):
-    if not text: return default_name
-    first_line = text.strip().split("\n")[0]
-    c = re.sub(r'(?i)^.*?(file\s*title|topic|chapter)\s*[:\-\—\.]*\s*', '', first_line).strip()
-    c = re.sub(r'(\.pdf|\.mkv|\.mp4)', '', c, flags=re.IGNORECASE).strip()
-    if len(c) > 25: c = c[:25] + ".."
-    return c if len(c) > 2 else default_name
+    words = clean.split()
+    if len(words) > 6:
+        clean = " ".join(words[:6])
 
-async def check_interval(u_id, freecheck):
-    if freecheck != 1 or await is_user_verified(u_id): return True, None
+    return clean[:40].strip() if clean else "સામાન્ય વિષય"
+
+# Upload thaya pachhi channel no latest message ane topic track karvo
+async def classify_and_record_link(userbot, link, user_id, summary_tracker, target_chat_id):
+    try:
+        chat, msg_id = None, None
+        clean_link = link.split("?single")[0]
+        if 't.me/c/' in clean_link:
+            parts = clean_link.split("/")
+            chat = int('-100' + parts[parts.index('c') + 1])
+            msg_id = int(parts[-1])
+        elif 't.me/b/' in clean_link:
+            parts = clean_link.split("/")
+            chat = parts[-2]
+            msg_id = int(parts[-1])
+        elif 't.me/' in clean_link:
+            parts = clean_link.split("t.me/")[1].split("/")
+            chat = parts[0]
+            msg_id = int(parts[1])
+
+        raw_title = ""
+        client_to_use = userbot if userbot else app
+        msg = await client_to_use.get_messages(chat, msg_id)
+        if msg:
+            if msg.caption:
+                raw_title = msg.caption
+            elif msg.text:
+                raw_title = msg.text
+            elif msg.video and msg.video.file_name:
+                raw_title = msg.video.file_name
+            elif msg.document and msg.document.file_name:
+                raw_title = msg.document.file_name
+
+        subject_chapter = extract_clean_subject_and_chapter(raw_title)
+
+        effective_chat = target_chat_id if target_chat_id else user_id
+        clean_cid = str(effective_chat).replace("-100", "")
+
+        target_jump_url = None
+        try:
+            async for last_msg in app.get_chat_history(effective_chat, limit=1):
+                target_jump_url = f"https://t.me/c/{clean_cid}/{last_msg.id}"
+        except Exception:
+            pass
+
+        if subject_chapter not in summary_tracker:
+            summary_tracker[subject_chapter] = []
+        if target_jump_url:
+            summary_tracker[subject_chapter].append(target_jump_url)
+    except Exception:
+        pass
+
+# Summary message with branding
+async def send_clickable_summary(client, user_id, summary_tracker, total_count, target_chat_id):
+    if not summary_tracker:
+        await client.send_message(
+            user_id, 
+            f"🎉 **Batch completed successfully for {total_count} messages**\n\n**__Powered By ╰‿╯ ҡσℓเ ⚝__**"
+        )
+        return
+
+    text = "📊 **બેચ સમરી (Batch Summary)**\n"
+    text += "━━━━━━━━━━━━━━━━━━━━\n"
+
+    for chapter, links in summary_tracker.items():
+        if links:
+            count = len(links)
+            first_url = links[0]
+            text += f"🔹 [{chapter} ({count} ફાઇલો)]({first_url}) 👈 અહીં દબાવો\n"
+
+    text += "━━━━━━━━━━━━━━━━━━━━\n"
+    text += f"✅ **કુલ અપલોડ થયેલ ફાઇલો:** `{total_count}`\n"
+    text += f"⚡ **__Powered By ╰‿╯ ҡσℓเ ⚝__**\n"
+    text += "💡 *જે વિષય/ચેપ્ટર પર જવું હોય તેના બ્લુ અક્ષર પર ક્લિક કરો.*"
+
+    if target_chat_id:
+        try:
+            await client.send_message(target_chat_id, text, disable_web_page_preview=True)
+        except Exception:
+            pass
+
+    await client.send_message(user_id, text, disable_web_page_preview=True)
+
+async def process_and_upload_link(userbot, user_id, msg_id, link, retry_count, message):
+    try:
+        await get_msg(userbot, user_id, msg_id, link, retry_count, message)
+        await asyncio.sleep(5)
+    finally:
+        pass
+
+async def check_interval(user_id, freecheck):
+    if freecheck != 1 or await is_user_verified(user_id):
+        return True, None
+
     now = datetime.now()
-    if u_id in interval_set and now < interval_set[u_id]:
-        return False, f"રાહ જુઓ: {(interval_set[u_id] - now).seconds}s."
+    if user_id in interval_set:
+        cooldown_end = interval_set[user_id]
+        if now < cooldown_end:
+            remaining_time = (cooldown_end - now).seconds
+            return False, f"Please wait {remaining_time} seconds(s) before sending another link. Alternatively, purchase premium for instant access.\n\n> Hey 👋 You can use /token to use the bot free for 3 hours without any time limit."
+        else:
+            del interval_set[user_id]
+
     return True, None
 
-async def initialize_userbot(u_id):
-    data = await db.get_data(u_id)
+async def set_interval(user_id, interval_minutes=45):
+    now = datetime.now()
+    interval_set[user_id] = now + timedelta(seconds=interval_minutes)
+
+@app.on_message(
+    filters.regex(r'https?://(?:www\.)?t\.me/[^\s]+|tg://openmessage\?user_id=\w+&message_id=\d+')
+    & filters.private
+)
+async def single_link(_, message):
+    user_id = message.chat.id
+
+    if await subscribe(_, message) == 1 or user_id in batch_mode:
+        return
+
+    if users_loop.get(user_id, False):
+        await message.reply(
+            "You already have an ongoing process. Please wait for it to finish or cancel it with /cancel."
+        )
+        return
+
+    if await chk_user(message, user_id) == 1 and FREEMIUM_LIMIT == 0 and user_id not in OWNER_ID and not await is_user_verified(user_id):
+        await message.reply("Freemium service is currently not available. Upgrade to premium for access.")
+        return
+
+    can_proceed, response_message = await check_interval(user_id, await chk_user(message, user_id))
+    if not can_proceed:
+        await message.reply(response_message)
+        return
+
+    users_loop[user_id] = True
+
+    link = message.text if "tg://openmessage" in message.text else get_link(message.text)
+    msg = await message.reply("Processing...")
+    userbot = await initialize_userbot(user_id)
+
+    try:
+        if await is_normal_tg_link(link):
+            await process_and_upload_link(userbot, user_id, msg.id, link, 0, message)
+            await set_interval(user_id, interval_minutes=45)
+        else:
+            await process_special_links(userbot, user_id, msg, link)
+            
+    except FloodWait as fw:
+        await msg.edit_text(f'Try again after {fw.x} seconds due to floodwait from Telegram.')
+    except Exception as e:
+        await msg.edit_text(f"Link: `{link}`\n\n**Error:** {str(e)}")
+    finally:
+        users_loop[user_id] = False
+        if userbot:
+            await userbot.stop()
+        try:
+            await msg.delete()
+        except Exception:
+            pass
+
+async def initialize_userbot(user_id):
+    data = await db.get_data(user_id)
     if data and data.get("session"):
         try:
-            ub = Client("userbot", api_id=API_ID, api_hash=API_HASH, device_model='iPhone 16 Pro', session_string=data.get("session"))
-            await ub.start()
-            return ub
-        except Exception: pass
+            device = 'iPhone 16 Pro'
+            userbot = Client(
+                "userbot",
+                api_id=API_ID,
+                api_hash=API_HASH,
+                device_model=device,
+                session_string=data.get("session")
+            )
+            await userbot.start()
+            return userbot
+        except Exception:
+            return None
     return None
 
-async def run_fast_summary(message, is_ch=False):
-    u_id, target, topic_id = message.chat.id, None, None
-    args = message.text.split()
-    if len(args) > 1:
-        raw = args[1].strip()
-        p = raw.split("/") if "/" in raw else [raw, None]
-        target = int("-100" + p[0].replace("-100", "").lstrip("-"))
-        if p[1] and p[1].isdigit(): topic_id = int(p[1])
-    if not target:
-        ud = await db.get_data(u_id) or {}
-        raw = str(ud.get("chat_id") or ud.get("dump_id") or "")
-        if raw:
-            p = raw.split("/") if "/" in raw else [raw, None]
-            target = int("-100" + p[0].replace("-100", "").lstrip("-"))
-            if p[1] and p[1].isdigit(): topic_id = int(p[1])
-    if not target: return await message.reply("⚠️ Target ID લખો: `/gen_summary ID` કે `/chapter_summary ID`")
-
-    st = await message.reply("⚡ સ્કેનિંગ શરૂ...")
-    ub = await initialize_userbot(u_id)
-    c = ub if ub else app
-    msgs, seen = [], set()
-
-    for flt in [enums.MessagesFilter.VIDEO, enums.MessagesFilter.DOCUMENT]:
-        try:
-            kw = {"chat_id": target, "filter": flt, "limit": 1500}
-            if topic_id: kw["message_thread_id"] = topic_id
-            async for m in c.search_messages(**kw):
-                if m.id not in seen: seen.add(m.id); msgs.append(m)
-        except Exception: pass
-
-    if not msgs:
-        async for m in c.get_chat_history(target, limit=2000):
-            if topic_id:
-                mt = getattr(m, "message_thread_id", None) or (m.reply_to_message_id if m.reply_to_message else None)
-                if mt != topic_id and m.id != topic_id: continue
-            if (m.video or m.document) and m.id not in seen:
-                seen.add(m.id); msgs.append(m)
-
-    if not msgs:
-        if ub: await ub.stop()
-        return await st.edit_text("❌ કોઈ ફાઈલ મળી નથી.")
-
-    msgs.reverse()
-    clean = str(target).replace("-100", "").replace("-", "")
-    data = {}
-
-    for idx, m in enumerate(msgs, 1):
-        txt = m.caption or m.text or (m.video.file_name if m.video else "") or (m.document.file_name if m.document else "")
-        tag = get_clean_name(txt, is_ch)
-        is_pdf = bool(m.document and m.document.file_name and m.document.file_name.endswith('.pdf'))
-        url = f"https://t.me/c/{clean}/{topic_id}/{m.id}" if topic_id else f"https://t.me/c/{clean}/{m.id}"
-        
-        # વિડિયોના નામને જ ક્લિકેબલ લિંક બનાવવી
-        short_title = get_short_title(txt, f"Part {idx}" if not is_pdf else f"PDF {idx}")
-        data.setdefault(tag, []).append((short_title, url, is_pdf))
-
-    txt_lines = []
-    if is_ch:
-        # અતિ કોમ્પેક્ટ ફોર્મેટ: વિડિયોના નામ પર જ લિંક
-        for ch, items in data.items():
-            txt_lines.append(f"📁 **{ch}**\n")
-            links_str = []
-            for name, u, pdf in items:
-                prefix = "📄" if pdf else "🎬"
-                links_str.append(f"{prefix} [{name}]({u})")
-            # એક જ બ્લોકમાં લિંક્સ
-            txt_lines.append(" • " + "\n • ".join(links_str) + "\n\n")
+async def is_normal_tg_link(link: str) -> bool:
+    special_identifiers = ['t.me/+', 't.me/c/', 't.me/b/', 'tg://openmessage']
+    return 't.me/' in link and not any(x in link for x in special_identifiers)
+    
+async def process_special_links(userbot, user_id, msg, link):
+    if 't.me/+' in link:
+        result = await userbot_join(userbot, link)
+        await msg.edit_text(result)
+    elif any(sub in link for sub in ['t.me/c/', 't.me/b/', '/s/', 'tg://openmessage']):
+        await process_and_upload_link(userbot, user_id, msg.id, link, 0, msg)
+        await set_interval(user_id, interval_minutes=45)
     else:
-        for sub, items in data.items():
-            v = sum(1 for _, _, x in items if not x)
-            p = sum(1 for _, _, x in items if x)
-            txt_lines.append(f"🔹 [{sub}]({items[0][1]}) 🎥`{v}` 📄`{p}`\n")
-
-    parts, cur = [], ("📚 **પ્રકરણ ઇન્ડેક્સ**\n\n" if is_ch else "📌 **વિષય સમરી**\n\n")
-    for l in txt_lines:
-        if len(cur) + len(l) > 3500: parts.append(cur); cur = l
-        else: cur += l
-    cur += f"───────────────\n✅ કુલ ફાઈલ: `{len(msgs)}`\n**__╰‿╯ ҡσℓเ ⚝__**"
-    parts.append(cur)
-
-    sender = ub if ub else app
-    for i, p in enumerate(parts):
-        try:
-            s = await sender.send_message(target, p, reply_to_message_id=topic_id, disable_web_page_preview=True) if topic_id else await sender.send_message(target, p, disable_web_page_preview=True)
-        except Exception:
-            s = await app.send_message(target, p, reply_to_message_id=topic_id, disable_web_page_preview=True) if topic_id else await app.send_message(target, p, disable_web_page_preview=True)
-        if i == 0 and s:
-            try: await s.pin(both_sides=True)
-            except Exception: pass
-        await asyncio.sleep(1)
-
-    if ub: await ub.stop()
-    await st.edit_text("✅ સમરી મોકલાઈ ગઈ અને PIN થઈ ગઈ!")
-
-@app.on_message(filters.regex(r'https?://(?:www\.)?t\.me/[^\s]+|tg://openmessage\?user_id=\w+&message_id=\d+') & filters.private)
-async def single_link(_, m):
-    u_id = m.chat.id
-    if await subscribe(_, m) == 1 or u_id in batch_mode or users_loop.get(u_id, False): return
-    chk = await chk_user(m, u_id)
-    if chk == 1 and FREEMIUM_LIMIT == 0 and u_id not in OWNER_ID and not await is_user_verified(u_id): return await m.reply("Freemium not available.")
-    can, res = await check_interval(u_id, chk)
-    if not can: return await m.reply(res)
-
-    users_loop[u_id] = True
-    lnk = m.text if "tg://openmessage" in m.text else get_link(m.text)
-    msg = await m.reply("Processing...")
-    ub = await initialize_userbot(u_id)
-    try:
-        if 't.me/' in lnk and not any(x in lnk for x in ['t.me/+', 't.me/c/', 't.me/b/', 'tg://openmessage']):
-            await get_msg(ub, u_id, msg.id, lnk, 0, m)
-            interval_set[u_id] = datetime.now() + timedelta(seconds=45)
-        elif 't.me/+' in lnk:
-            await msg.edit_text(await userbot_join(ub, lnk))
-        elif any(sub in lnk for sub in ['t.me/c/', 't.me/b/', '/s/', 'tg://openmessage']):
-            await get_msg(ub, u_id, msg.id, lnk, 0, msg)
-            interval_set[u_id] = datetime.now() + timedelta(seconds=45)
-    except Exception as e: await msg.edit_text(f"Error: {e}")
-    finally:
-        users_loop[u_id] = False
-        if ub: await ub.stop()
-        try: await msg.delete()
-        except Exception: pass
+        await msg.edit_text("Invalid link format.")
 
 @app.on_message(filters.command("batch") & filters.private)
-async def batch_link(_, m):
-    if await subscribe(_, m) == 1 or users_loop.get(m.chat.id, False): return
-    u_id = m.chat.id
-    free = await chk_user(m, u_id)
-    mx = PREMIUM_LIMIT if (free != 1 or u_id in OWNER_ID) else (30 if await is_user_verified(u_id) else FREEMIUM_LIMIT)
+async def batch_link(_, message):
+    join = await subscribe(_, message)
+    if join == 1:
+        return
+    user_id = message.chat.id
 
-    for _ in range(3):
-        st = await app.ask(u_id, "🎯 Start Link મોકલો:")
-        if st.text.strip().split("/")[-1].isdigit():
-            cs = int(st.text.strip().split("/")[-1])
-            start_url = st.text.strip()
+    if users_loop.get(user_id, False):
+        await app.send_message(
+            message.chat.id,
+            "You already have a batch process running. Please wait for it to complete."
+        )
+        return
+
+    freecheck = await chk_user(message, user_id)
+    if freecheck == 1 and FREEMIUM_LIMIT == 0 and user_id not in OWNER_ID and not await is_user_verified(user_id):
+        await message.reply("Freemium service is currently not available. Upgrade to premium for access.")
+        return
+
+    max_batch_size = PREMIUM_LIMIT if (freecheck != 1 or user_id in OWNER_ID) else (30 if await is_user_verified(user_id) else FREEMIUM_LIMIT)
+        
+    for attempt in range(3):
+        await app.send_photo(
+            message.chat.id,
+            photo="https://i.postimg.cc/BXkchVpY/image.jpg",
+            caption="Just Copy Post Link And Send it To Me.\n\nજ્યાંથી શરૂ કરવું હોય તે પોસ્ટની લિંક મોકલો\n\nMake sure the link is correct!"
+        )
+        start = await app.ask(message.chat.id, "🎯 Send The Link For Where I Need To Start Process From \n\n> You Have Only 3 Tries")
+        start_id = start.text.strip()
+        s = start_id.split("/")[-1]
+        if s.isdigit():
+            cs = int(s)
             break
-    else: return await m.reply("Max limit reached.")
+        await app.send_message(message.chat.id, "Invalid link. Please send again ...")
+    else:
+        await app.send_message(message.chat.id, "Maximum attempts exceeded. Try later.")
+        return
 
-    for _ in range(3):
-        nm = await app.ask(u_id, f"કેટલા મેસેજ કરવા છે? (Max {mx}):")
-        if nm.text.strip().isdigit() and 1 <= int(nm.text.strip()) <= mx:
-            cl = int(nm.text.strip())
-            break
-    else: return await m.reply("Invalid number.")
+    for attempt in range(3):
+        num_messages = await app.ask(message.chat.id, f"How many messages do you want to process? 🌝\n> Max limit {max_batch_size}")
+        try:
+            cl = int(num_messages.text.strip())
+            if 1 <= cl <= max_batch_size:
+                break
+            raise ValueError()
+        except ValueError:
+            await app.send_message(
+                message.chat.id, 
+                f"Invalid number. Please enter a number between 1 and {max_batch_size}."
+            )
+    else:
+        await app.send_message(message.chat.id, "Maximum attempts exceeded. Try later.")
+        return
 
-    p_msg = await m.reply(f"Batch started ⚡ (0/{cl})")
-    users_loop[u_id] = True
-    ub = await initialize_userbot(u_id)
+    can_proceed, response_message = await check_interval(user_id, freecheck)
+    if not can_proceed:
+        await message.reply(response_message)
+        return
+        
+    join_button = InlineKeyboardButton("Join Channel", url="https://t.me/SRC_PRO")
+    keyboard = InlineKeyboardMarkup([[join_button]])
+    pin_msg = await app.send_message(
+        user_id,
+        f"Batch process started ⚡\nProcessing: 0/{cl}\n\n**Powered By ╰‿╯ ҡσℓเ ⚝**",
+        reply_markup=keyboard
+    )
+    await pin_msg.pin(both_sides=True)
+
+    users_loop[user_id] = True
+
+    user_settings = await db.get_data(user_id)
+    target_chat_id = user_settings.get("chat_id") if user_settings else None
+
+    summary_tracker = {}
+
     try:
+        normal_links_handled = False
+        userbot = await initialize_userbot(user_id)
+
+        # Normal Links
         for i in range(cs, cs + cl):
-            if not users_loop.get(u_id, False): break
-            url = f"{'/'.join(start_url.split('/')[:-1])}/{i}"
-            lnk = get_link(url)
-            msg = await m.reply("Processing...")
-            await get_msg(ub, u_id, msg.id, lnk, 0, m)
-            try: await p_msg.edit_text(f"Processing: {i - cs + 1}/{cl}")
-            except Exception: pass
-            await asyncio.sleep(3)
-        await p_msg.edit_text("Batch Completed 🎉")
+            if user_id in users_loop and users_loop[user_id]:
+                url = f"{'/'.join(start_id.split('/')[:-1])}/{i}"
+                link = get_link(url)
+                if 't.me/' in link and not any(x in link for x in ['t.me/b/', 't.me/c/', 'tg://openmessage']):
+                    msg = await app.send_message(message.chat.id, f"Processing...")
+                    await process_and_upload_link(userbot, user_id, msg.id, link, 0, message)
+                    await classify_and_record_link(userbot, link, user_id, summary_tracker, target_chat_id)
+                    try:
+                        await pin_msg.edit_text(
+                            f"Batch process started ⚡\nProcessing: {i - cs + 1}/{cl}\n\n**__Powered By ╰‿╯ ҡσℓเ ⚝__**",
+                            reply_markup=keyboard
+                        )
+                    except MessageNotModified:
+                        pass
+                    except FloodWait as fw:
+                        await asyncio.sleep(fw.value)
+                    except Exception:
+                        pass
+                    normal_links_handled = True
+
+        if normal_links_handled:
+            await set_interval(user_id, interval_minutes=300)
+            try:
+                await pin_msg.edit_text(
+                    f"Batch completed successfully for {cl} messages 🎉\n\n**__Powered By ╰‿╯ ҡσℓเ ⚝__**",
+                    reply_markup=keyboard
+                )
+            except Exception:
+                pass
+            await app.send_message(message.chat.id, "😘 𝗖ꪮ𝗺𝗽𝗹𝗲𝘁𝗲 𝗛ꪮ 𝗚𝗮𝘆𝗮 𝗕ꪮ$$ 😎")             await send_clickable_summary(app, user_id, summary_tracker, cl, target_chat_id)             return                      # Special Links (t.me/c/ vagere)         for i in range(cs, cs + cl):             if not userbot:                 await app.send_message(message.chat.id, "Login in bot first ...")                 users_loop[user_id] = False                 return             if user_id in users_loop and users_loop[user_id]:                 url = f"{'/'.join(start_id.split('/')[:-1])}/{i}"                 link = get_link(url)                 if any(x in link for x in ['t.me/b/', 't.me/c/']):                     msg = await app.send_message(message.chat.id, f"Processing...")                     await process_and_upload_link(userbot, user_id, msg.id, link, 0, message)                     await classify_and_record_link(userbot, link, user_id, summary_tracker, target_chat_id)                     try:                         await pin_msg.edit_text(                             f"Batch process started ⚡\nProcessing: {i - cs + 1}/{cl}\n\n**__Powered By ╰‿╯ ҡσℓเ ⚝__**",                             reply_markup=keyboard                         )                     except MessageNotModified:                         pass                     except FloodWait as fw:                         await asyncio.sleep(fw.value)                     except Exception:                         pass          await set_interval(user_id, interval_minutes=300)         try:             await pin_msg.edit_text(                 f"Batch completed successfully for {cl} messages 🎉\n\n**__Powered By ╰‿╯ ҡσℓเ ⚝__**",                 reply_markup=keyboard             )         except Exception:             pass          await app.send_message(message.chat.id, "😘 𝗖ꪮ𝗺𝗽𝗹𝗲𝘁𝗲 𝗛ꪮ 𝗚𝗮𝘆𝗮 𝗕ꪮ$$ 😎")
+        await send_clickable_summary(app, user_id, summary_tracker, cl, target_chat_id)
+
+    except Exception as e:
+        await app.send_message(message.chat.id, f"Error: {e}")
     finally:
-        users_loop.pop(u_id, None)
-        if ub: await ub.stop()
-
-@app.on_message(filters.command("gen_summary"))
-async def cmd_gen_sum(_, m): await run_fast_summary(m, False)
-
-@app.on_message(filters.command("chapter_summary"))
-async def cmd_ch_sum(_, m): await run_fast_summary(m, True)
+        users_loop.pop(user_id, None)
 
 @app.on_message(filters.command("cancel"))
-async def stop_batch(_, m):
-    if users_loop.get(m.chat.id, False):
-        users_loop[m.chat.id] = False
-        await m.reply("Stopped successfully.")
+async def stop_batch(_, message):
+    user_id = message.chat.id
+
+    if user_id in users_loop and users_loop[user_id]:
+        users_loop[user_id] = False
+        await app.send_message(
+            message.chat.id, 
+            "Batch processing has been stopped successfully. You can start a new batch now if you want."
+        )
+    elif user_id in users_loop and not users_loop[user_id]:
+        await app.send_message(
+            message.chat.id, 
+            "The batch process was already stopped. No active batch to cancel."
+        )
     else:
-        await m.reply("No active batch.")
-        
+        await app.send_message(
+            message.chat.id, 
+            "No active batch processing is running to cancel."
+        )
 
-# --- રીડીમ કોડ કમાન્ડ્સ ---
-import secrets
-
+# --- 5 Hours Redeem Commands ---
 @app.on_message(filters.command("gen_code") & filters.private)
 async def generate_code_handler(client, message):
     user_id = message.chat.id
-    if user_id not in OWNER_ID:
-        return await message.reply("⚠️ આ કમાન્ડ ફક્ત એડમિન જ વાપરી શકે છે!")
+    
+    owner_list = OWNER_ID if isinstance(OWNER_ID, list) else [int(OWNER_ID)]
+    if user_id not in owner_list:
+        return await message.reply(f"⚠️ તમારી પાસે પરવાનગી નથી! User ID: `{user_id}`")
     
     args = message.text.split()
     count = 1
@@ -288,31 +423,35 @@ async def generate_code_handler(client, message):
         if count > 20:
             count = 20
 
-    from devgagan.core.mongo.db import create_redeem_code
-    generated_codes = []
+    try:
+        from devgagan.core.mongo.db import create_redeem_code
+        generated_codes = []
 
-    for _ in range(count):
-        code = f"SRC-{secrets.token_hex(3).upper()}"
-        await create_redeem_code(code, hours=5)
-        generated_codes.append(f"`{code}`")
+        for _ in range(count):
+            code = f"SRC-{secrets.token_hex(3).upper()}"
+            await create_redeem_code(code, hours=5)
+            generated_codes.append(f"`{code}`")
 
-    if count == 1:
-        text = (
-            f"🎉 **૫ કલાકનો નવો રીડીમ કોડ!**\n\n"
-            f"🔑 **કોડ:** {generated_codes[0]}\n"
-            f"⏳ **સમયગાળો:** ૫ કલાક\n\n"
-            f"👉 વાપરવા માટે: `/redeem {generated_codes[0]}`"
-        )
-    else:
-        codes_list = "\n".join([f"• {c}" for c in generated_codes])
-        text = (
-            f"🎉 **કુલ {count} રીડીમ કોડ બની ગયા છે!** (દરેક ૫ કલાક માટે)\n\n"
-            f"{codes_list}\n\n"
-            f"💡 *મેમ્બરને આમાંથી એક કોડ આપો અને કહો કે બોટમાં `/redeem CODE` મોકલે.*"
-        )
+        if count == 1:
+            text = (
+                f"🎉 **૫ કલાકનો નવો રીડીમ કોડ!**\n\n"
+                f"🔑 **કોડ:** {generated_codes[0]}\n"
+                f"⏳ **સમયગાળો:** ૫ કલાક\n\n"
+                f"👉 વાપરવા માટે: `/redeem {generated_codes[0]}`\n\n"
+                f"**__Powered By ╰‿╯ ҡσℓเ ⚝__**"
+            )
+        else:
+            codes_list = "\n".join([f"• {c}" for c in generated_codes])
+            text = (
+                f"🎉 **કુલ {count} રીડીમ કોડ બની ગયા!** (દરેક ૫ કલાક)\n\n"
+                f"{codes_list}\n\n"
+                f"👉 મેમ્બરને `/redeem CODE` મોકલવા કહો.\n\n"
+                f"**__Powered By ╰‿╯ ҡσℓเ ⚝__**"
+            )
 
-    await message.reply(text)
-
+        await message.reply(text)
+    except Exception as e:
+        await message.reply(f"❌ એરર આવી: `{e}`")
 
 @app.on_message(filters.command("redeem") & filters.private)
 async def redeem_code_handler(client, message):
@@ -323,8 +462,10 @@ async def redeem_code_handler(client, message):
         return await message.reply("⚠️ કોડ લખવો જરૂરી છે!\n\nઆ રીતે લખો: `/redeem SRC-XXXXXX`")
     
     code = args[1].strip()
-    from devgagan.core.mongo.db import use_redeem_code
-    success, res_msg = await use_redeem_code(code, user_id)
-    
-    await message.reply(res_msg)
-    
+    try:
+        from devgagan.core.mongo.db import use_redeem_code
+        success, res_msg = await use_redeem_code(code, user_id)
+        await message.reply(res_msg)
+    except Exception as e:
+        await message.reply(f"❌ એરર આવી: `{e}`")
+                                      
