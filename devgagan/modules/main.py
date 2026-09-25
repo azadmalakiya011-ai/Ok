@@ -27,39 +27,50 @@ users_loop = {}
 interval_set = {}
 batch_mode = {}
 
-# Caption અથવા File Title માંથી વિષયનું શુદ્ધ ગુજરાતી નામ શોધવું
+# Caption athva File Name mathi mukhya vishay nu shuddh Gujarati naam shodhavu
 def extract_topic_from_text(raw_text: str) -> str:
     if not raw_text:
-        return "સામાન્ય વિષય"
+        return "અન્ય વિષય"
 
-    # 1. File Title વાળી લાઇનમાંથી શોધવું
-    for line in raw_text.split("\n"):
-        if "file title" in line.lower():
-            clean = re.sub(r'(?i)file title\s*[:\-\—]*', '', line).strip()
-            clean = re.sub(r'(\.pdf|\.mkv|\.mp4|\[\d+p\]|\(\d+p\))', '', clean, flags=re.IGNORECASE).strip()
-            clean = re.sub(r'(?i)\b(l|lec|lecture)[\-_ ]*\d+\b\s*[:\-\—]*', '', clean).strip()
-            if clean:
-                return clean[:30]
-
-    # 2. કીવર્ડ્સ મેચ કરવા
     t_lower = raw_text.lower()
+
+    # Mukhya vishayo nu sampurna mapping list
     subject_map = [
-        (["રીઝનીંગ", "reasoning"], "રીઝનીંગ"),
-        (["રોડ સેફટી", "road safety", "મોટર"], "રોડ સેફટી"),
-        (["ગુજરાતી વ્યાકરણ", "વ્યાકરણ", "vyakaran"], "ગુજરાતી વ્યાકરણ"),
-        (["ગુજરાતી સાહિત્ય", "સાહિત્ય", "sahitya"], "ગુજરાતી સાહિત્ય"),
-        (["ગણિત", "maths", "math"], "ગણિત"),
-        (["કોમ્પ્યુટર", "computer", "કોમ્પ"], "કોમ્પ્યુટર"),
-        (["અંગ્રેજી", "english", "ઇંગ્લિશ", "eng"], "અંગ્રેજી"),
-        (["ઇતિહાસ", "history", "ઈતિહાસ"], "ઇતિહાસ"),
-        (["ભૂગોળ", "geography", "ભુગોળ"], "ભૂગોળ"),
-        (["બંધારણ", "polity", "constitution"], "બંધારણ"),
-        (["વિજ્ઞાન", "science", "સાયન્સ"], "વિજ્ઞાન"),
-        (["કાયદો", "law", "ipc", "crpc"], "કાયદો"),
-        (["કરંટ", "current"], "કરંટ અફેર્સ"),
-        (["પર્યાવરણ", "environment", "ફોરેસ્ટ"], "પર્યાવરણ"),
-        (["સામાન્ય જ્ઞાન", "જનરલ નોલેજ", "gk"], "સામાન્ય જ્ઞાન"),
-        (["કંડક્ટર", "ડ્રાઈવર"], "કંડક્ટર સ્પેશિયલ")
+        # Tamare aapela vishayo
+        (["ગુજરાતનો ઇતિહાસ", "ગુજરાતનો ઈતિહાસ", "gujarat no itihas", "gujarat itihas", "gujarat history"], "ગુજરાતનો ઇતિહાસ"),
+        (["ભારતનો ઇતિહાસ", "ભારતનો ઈતિહાસ", "bharat no itihas", "bharat itihas", "indian history", "india history"], "ભારતનો ઇતિહાસ"),
+        (["ગુજરાતનો સાંસ્કૃતિક વારસો", "ગુજરાતનો વારસો", "gujarat no sanskrutik varso", "gujarat culture"], "ગુજરાતનો સાંસ્કૃતિક વારસો"),
+        (["ભારતનો સાંસ્કૃતિક વારસો", "ભારતનો વારસો", "bharat no sanskrutik varso", "indian culture", "india culture"], "ભારતનો સાંસ્કૃતિક વારસો"),
+        (["ગુજરાતની ભૂગોળ", "ગુજરાત ભૂગોળ", "gujarati bhugol", "gujarat bhugol", "gujarat geography"], "ગુજરાતની ભૂગોળ"),
+        (["ભારતની ભૂગોળ", "ભારત ભૂગોળ", "bharat ni bhugol", "bharat bhugol", "indian geography"], "ભારતની ભૂગોળ"),
+        (["વિશ્વ ભૂગોળ", "વિશ્વની ભૂગોળ", "vishva bhugol", "world geography"], "વિશ્વની ભૂગોળ"),
+        (["ભારતીય બંધારણ", "બંધારણ", "bhartiy bandharan", "bandharan", "polity", "constitution"], "ભારતીય બંધારણ"),
+        (["ગુજરાતી વ્યાકરણ", "gujarati vyakaran", "gujarati grammar"], "ગુજરાતી વ્યાકરણ"),
+        (["ગુજરાતી સાહિત્ય", "gujarati sahitya", "sahitya"], "ગુજરાતી સાહિત્ય"),
+        (["પત્ર લેખન", "patra lekhan"], "પત્ર લેખન"),
+        (["અહિરવાલ", "ahirwal"], "અહિરવાલ"),
+        (["પર્યાવરણ", "paryavaran", "environment", "ફોરેસ્ટ", "વનરક્ષક"], "પર્યાવરણ"),
+        (["ઇંગ્લિશ ગ્રામર", "અંગ્રેજી વ્યાકરણ", "english grammar"], "ઇંગ્લિશ ગ્રામર"),
+        (["અંગ્રેજી", "ઇંગ્લિશ", "english", "eng"], "અંગ્રેજી"),
+        (["ગુજરાતી", "gujarati"], "ગુજરાતી"),
+
+        # Spardhatmak Pariksha mate jaruri bija mukhya vishayo
+        (["ગણિત", "maths", "math", "mathematics"], "ગણિત"),
+        (["રીઝનીંગ", "reasoning", "માનસિક ક્ષમતા", "mental ability"], "રીઝનીંગ"),
+        (["કોમ્પ્યુટર", "computer", "કોમ્પ", "comp"], "કોમ્પ્યુટર"),
+        (["સામાન્ય વિજ્ઞાન", "વિજ્ઞાન", "science", "general science", "સાયન્સ"], "સામાન્ય વિજ્ઞાન"),
+        (["વિજ્ઞાન અને ટેકનોલોજી", "science and tech", "science & technology"], "વિજ્ઞાન અને ટેકનોલોજી"),
+        (["કાયદો", "law", "ipc", "crpc", "evidence act", "પોલીસ કાયદો"], "કાયદો"),
+        (["પંચાયતી રાજ", "panchayati raj"], "પંચાયતી રાજ"),
+        (["જાહેર વહીવટ", "public administration", "pub ad"], "જાહેર વહીવટ"),
+        (["અર્થશાસ્ત્ર", "અર્થતંત્ર", "economics", "economy"], "અર્થશાસ્ત્ર"),
+        (["કરંટ અફેર્સ", "વર્તમાન પ્રવાહો", "current affairs", "current"], "કરંટ અફેર્સ"),
+        (["સામાન્ય જ્ઞાન", "જનરલ નોલેજ", "gk", "general knowledge"], "સામાન્ય જ્ઞાન"),
+        (["રોડ સેફટી", "road safety", "મોટર વ્હીકલ"], "રોડ સેફટી"),
+        (["કંડક્ટર", "ડ્રાઈવર", "conductor"], "કંડક્ટર સ્પેશિયલ"),
+        (["નીતિશાસ્ત્ર", "ethics"], "નીતિશાસ્ત્ર"),
+        (["આપત્તિ વ્યવસ્થાપન", "disaster management"], "આપત્તિ વ્યવસ્થાપન"),
+        (["સરકારી યોજનાઓ", "યોજનાઓ", "yojana", "yojna"], "સરકારી યોજનાઓ")
     ]
 
     for kws, name in subject_map:
@@ -67,13 +78,25 @@ def extract_topic_from_text(raw_text: str) -> str:
             if kw in t_lower:
                 return name
 
+    # Jo uparna list ma vishay na male to j File Title check karvu
+    for line in raw_text.split("\n"):
+        if "file title" in line.lower():
+            clean = re.sub(r'(?i)file title\s*[:\-\—]*', '', line).strip()
+            clean = re.sub(r'(\.pdf|\.mkv|\.mp4|\[\d+p\]|\(\d+p\))', '', clean, flags=re.IGNORECASE).strip()
+            clean = re.sub(r'(?i)\b(l|lec|lecture)[\-_ ]*\d+\b\s*[:\-\—]*', '', clean).strip()
+            clean = re.sub(r'\(?\d{2}[\.\-_/]\d{2}[\.\-_/]\d{2,4}\)?', '', clean).strip()
+            if clean:
+                return clean[:25]
+
     for line in raw_text.split("\n"):
         clean_line = line.strip()
         if clean_line and not any(x in clean_line.lower() for x in ["vid id", "pdf id", "batch name", "topic name", "log info"]):
             clean_line = re.sub(r'(\.pdf|\.mkv|\.mp4)', '', clean_line, flags=re.IGNORECASE).strip()
-            return clean_line[:30]
+            clean_line = re.sub(r'\(?\d{2}[\.\-_/]\d{2}[\.\-_/]\d{2,4}\)?', '', clean_line).strip()
+            if clean_line:
+                return clean_line[:25]
 
-    return "સામાન્ય વિષય"
+    return "અન્ય વિષય"
 
 async def check_interval(user_id, freecheck):
     if freecheck != 1 or await is_user_verified(user_id):
@@ -267,14 +290,13 @@ async def batch_link(_, message):
                 pass
 
 # ---------------------------------------------------
-# Auto Scanner Command: /gen_summary (Multi-Part Splitter)
+# Auto Scanner Command: /gen_summary (Subject Grouping Support)
 # ---------------------------------------------------
 @app.on_message(filters.command("gen_summary"))
 async def generate_channel_summary_auto(client, message):
     user_id = message.chat.id
     target_chat_id = None
 
-    # 1. જો કમાન્ડ સાથે ચેનલ આઈડી આપ્યો હોય: /gen_summary -100xxxxxxxx
     args = message.text.split()
     if len(args) > 1:
         raw_arg = args[1].strip()
@@ -285,7 +307,6 @@ async def generate_channel_summary_auto(client, message):
         except Exception:
             pass
 
-    # 2. ડેટાબેઝમાંથી ચેનલ આઈડી તપાસવો
     if not target_chat_id:
         try:
             user_settings = await db.get_data(user_id)
@@ -319,11 +340,16 @@ async def generate_channel_summary_auto(client, message):
     clean_dest = str(target_chat_id).replace("-100", "").replace("-", "")
 
     try:
-        # ચેનલના બધા જ મેસેજ સ્કેન કરવા
+        # Channel na badha messages melavine junathi nava kram ma leva
+        all_messages = []
         async for m in c.get_chat_history(target_chat_id):
-            if not (m.video or m.document):
-                continue
+            if m.video or m.document:
+                all_messages.append(m)
 
+        # Kram sidho karvo (pehlo video pehla aave te mate)
+        all_messages.reverse()
+
+        for m in all_messages:
             raw_text = m.caption or m.text or ""
             if not raw_text and m.video and m.video.file_name:
                 raw_text = m.video.file_name
@@ -334,6 +360,7 @@ async def generate_channel_summary_auto(client, message):
             is_pdf = bool(m.document and (m.document.file_name.endswith('.pdf') if m.document.file_name else False))
             jump_url = f"https://t.me/c/{clean_dest}/{m.id}"
 
+            # Jo pehli vaar vishay aave to tena sauthi pehla video ni link set karvi
             if topic not in summary_data:
                 summary_data[topic] = {
                     "url": jump_url,
@@ -341,8 +368,7 @@ async def generate_channel_summary_auto(client, message):
                     "pdfs": 0
                 }
 
-            summary_data[topic]["url"] = jump_url
-
+            # File count vadharvo
             if is_pdf:
                 summary_data[topic]["pdfs"] += 1
             else:
@@ -351,7 +377,7 @@ async def generate_channel_summary_auto(client, message):
         if not summary_data:
             return await status_msg.edit_text(f"❌ ચેનલ `{target_chat_id}` માં કોઈ વીડિયો કે ફાઈલ મળી નથી.")
 
-        # સમરી લાઈનો તૈયાર કરવી
+        # Summary lines taiyar karvi
         total_files = 0
         topic_lines = []
         for topic, stats in summary_data.items():
@@ -361,7 +387,7 @@ async def generate_channel_summary_auto(client, message):
             total_files += (v + p)
             topic_lines.append(f"- [{topic}]({url}) 🎥 {v} | 📄 {p}\n\n")
 
-        # ૩૦૦૦ અક્ષરોની મર્યાદા રાખીને મેસેજના ટુકડા બનાવવા
+        # 3000 aksharo ni maryada dhyan ma rakhine bhaag padva
         parts = []
         curr_part = "📌 **Topic Summary**\n\n"
         for line in topic_lines:
@@ -376,7 +402,7 @@ async def generate_channel_summary_auto(client, message):
         curr_part += "**__Powered By ╰‿╯ ҡσℓเ ⚝__**"
         parts.append(curr_part)
 
-        # ચેનલમાં બધા ભાગ ક્રમશઃ મોકલવા અને પહેલા ભાગને પિન કરવો
+        # Channel ma moklavu ane pehla part ne pin karvu
         first_msg = None
         sender = userbot if userbot else app
 
@@ -395,7 +421,7 @@ async def generate_channel_summary_auto(client, message):
                     pass
             await asyncio.sleep(1)
 
-        await status_msg.edit_text(f"✅ ચેનલ `{target_chat_id}` માં કુલ {len(parts)} ભાગમાં સમરી મોકલાઈ ગઈ અને પિન થઈ ગઈ!")
+        await status_msg.edit_text(f"✅ ચેનલ `{target_chat_id}` માં સમરી મોકલાઈ ગઈ અને પિન થઈ ગઈ!")
 
     except Exception as e:
         await status_msg.edit_text(f"❌ Error આવી: {e}")
@@ -414,4 +440,4 @@ async def stop_batch(_, message):
         await app.send_message(message.chat.id, "Batch processing has been stopped successfully.")
     else:
         await app.send_message(message.chat.id, "No active batch running.")
-                
+    
