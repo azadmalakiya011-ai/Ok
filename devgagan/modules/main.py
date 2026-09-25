@@ -1,6 +1,6 @@
 # ---------------------------------------------------
 # File Name: main.py
-# Description: Auto Channel & Superfast Group Topic Scanner with Multi-Part Summary
+# Description: Channel & Topic Auto Scanner with Subject & Chapter Wise Summary
 # Author: Gagan | Custom Mod for: ╰‿╯ ҡσℓเ ⚝
 # ---------------------------------------------------
 
@@ -9,7 +9,7 @@ import random
 import string
 import asyncio
 import re
-from pyrogram import filters, Client
+from pyrogram import filters, Client, enums
 from devgagan import app
 from config import API_ID, API_HASH, FREEMIUM_LIMIT, PREMIUM_LIMIT, OWNER_ID
 from devgagan.core.get_func import get_msg
@@ -32,7 +32,6 @@ def extract_topic_from_text(raw_text: str) -> str:
     if not raw_text:
         return "અન્ય વિષય"
 
-    # 1. Caption mathi 'Topic Name :' athva 'Topic :' vali line sodhvi
     topic_line_text = ""
     for line in raw_text.split("\n"):
         line_clean = line.strip()
@@ -42,7 +41,6 @@ def extract_topic_from_text(raw_text: str) -> str:
 
     text_to_search = f"{topic_line_text} {raw_text}".lower()
 
-    # 2. Mukhya vishayo nu list
     subject_map = [
         (["કોમ્પ્યુટર", "computer", "કોમ્પ", "comp"], "કોમ્પ્યુટર"),
         (["ગણિત", "maths", "math", "mathematics"], "ગણિત"),
@@ -83,14 +81,12 @@ def extract_topic_from_text(raw_text: str) -> str:
             if kw in text_to_search:
                 return name
 
-    # 3. Shikshak nu naam hoy to kadhvu
     if topic_line_text:
         clean_topic = re.sub(r'(?i)\b\w+\s+sir\b\s*[\-\—:]*\s*', '', topic_line_text).strip()
         if clean_topic:
             return clean_topic[:25]
         return topic_line_text[:25]
 
-    # 4. Vadhara ni line ignore karvi
     for line in raw_text.split("\n"):
         clean_line = line.strip()
         if not clean_line:
@@ -104,6 +100,51 @@ def extract_topic_from_text(raw_text: str) -> str:
             return clean_line[:25]
 
     return "અન્ય વિષય"
+
+def extract_chapter_from_text(raw_text: str) -> str:
+    """ગણિત કે અન્ય વિષયના ચેપ્ટર શોધવા માટેનું ફંક્શન"""
+    if not raw_text:
+        return "સામાન્ય પ્રકરણ"
+
+    for line in raw_text.split("\n"):
+        line_clean = line.strip()
+        if re.search(r'(?i)\b(chapter|ch|topic(\s*name)?)\s*[:\-\—]', line_clean):
+            ch_name = re.sub(r'(?i)^.*?\b(chapter|ch|topic(\s*name)?)\s*[:\-\—]\s*', '', line_clean).strip()
+            ch_name = re.sub(r'(?i)\b\w+\s+sir\b\s*[\-\—:]*\s*', '', ch_name).strip()
+            ch_name = re.sub(r'(?i)\b(part|lec|lecture|\d+|video)\b.*', '', ch_name).strip()
+            if len(ch_name) > 2:
+                return ch_name[:30]
+
+    # ગણિતના સામાન્ય પ્રકરણોનું લિસ્ટ
+    math_chapters = [
+        (["સાદું વ્યાજ", "sadu vyaj", "simple interest", "si"], "સાદું વ્યાજ"),
+        (["ચક્રવૃદ્ધિ વ્યાજ", "chakravrudhi vyaj", "compound interest", "ci"], "ચક્રવૃદ્ધિ વ્યાજ"),
+        (["નફો ખોટ", "નફો અને ખોટ", "nafo khot", "profit and loss", "profit loss"], "નફો અને ખોટ"),
+        (["ટકાવારી", "takavari", "percentage", "percent"], "ટકાવારી"),
+        (["ગુણોત્તર અને પ્રમાણ", "ગુણોત્તર", "gunottar", "ratio and proportion", "ratio"], "ગુણોત્તર અને પ્રમાણ"),
+        (["સરેરાશ", "sarerash", "average", "avg"], "સરેરાશ"),
+        (["કામ અને મહેનતાણું", "કામ સમય", "kam ane samay", "time and work", "work and time"], "કામ અને સમય"),
+        (["નળ અને ટાંકી", "nal ane tanki", "pipes and cistern", "pipe and cistern"], "નળ અને ટાંકી"),
+        (["અંતર અને સમય", "ઝડપ અને અંતર", "antar ane samay", "time speed distance", "speed and distance"], "ઝડપ, અંતર અને સમય"),
+        (["ટ્રેન", "train", "રેલવે"], "ટ્રેન આધારિત દાખલા"),
+        (["હોડી અને પ્રવાહ", "hodi ane pravah", "boat and stream"], "હોડી અને પ્રવાહ"),
+        (["ભાગીદારી", "bhagidari", "partnership"], "ભાગીદારી"),
+        (["મિશ્રણ", "mishran", "alligation", "mixture"], "મિશ્રણ"),
+        (["ઉંમર આધારિત", "ઉંમર", "umar", "problems on ages", "age"], "ઉંમર આધારિત દાખલા"),
+        (["ક્ષેત્રફળ", "khetrafal", "area", "પરિમિતિ"], "ક્ષેત્રફળ અને પરિમિતિ"),
+        (["ઘનફળ", "ghanfal", "volume", "પૃષ્ઠફળ"], "ઘનફળ અને પૃષ્ઠફળ"),
+        (["સાદુરૂપ", "sadurup", "simplification"], "સાદુરૂપ"),
+        (["સંખ્યા પદ્ધતિ", "sankhya padhdhati", "number system"], "સંખ્યા પદ્ધતિ"),
+        (["લ.સા.અ", "ગુ.સા.અ", "lcm", "hcf", "lcm hcf"], "લ.સા.અ અને ગુ.સા.અ")
+    ]
+
+    text_lower = raw_text.lower()
+    for kws, name in math_chapters:
+        for kw in kws:
+            if kw in text_lower:
+                return name
+
+    return extract_topic_from_text(raw_text)
 
 async def check_interval(user_id, freecheck):
     if freecheck != 1 or await is_user_verified(user_id):
@@ -297,7 +338,7 @@ async def batch_link(_, message):
                 pass
 
 # ---------------------------------------------------
-# Superfast Auto Scanner: /gen_summary (Supports Topics & Direct Fast Scan)
+# Auto Scanner 1: /gen_summary (Subject Level Summary)
 # ---------------------------------------------------
 @app.on_message(filters.command("gen_summary"))
 async def generate_channel_summary_auto(client, message):
@@ -359,7 +400,7 @@ async def generate_channel_summary_auto(client, message):
         )
 
     topic_info = f" (Topic: `{topic_id}`)" if topic_id else ""
-    status_msg = await message.reply(f"⚡ ગ્રુપ `{target_chat_id}`{topic_info} સ્પીડમાં સ્કેન થઈ રહ્યું છે...")
+    status_msg = await message.reply(f"⚡ ગ્રુપ `{target_chat_id}`{topic_info} સ્કેન થઈ રહ્યું છે...")
     userbot = await initialize_userbot(user_id)
     c = userbot if userbot else app
 
@@ -368,25 +409,34 @@ async def generate_channel_summary_auto(client, message):
 
     try:
         all_messages = []
-        
-        # Superfast Topic Fetching: reply_to_message_id direct pass karvu
-        history_kwargs = {"chat_id": target_chat_id, "limit": 2500}
-        if topic_id:
-            history_kwargs["reply_to_message_id"] = topic_id
+        seen_ids = set()
 
-        try:
-            async for m in c.get_chat_history(**history_kwargs):
-                if m.video or m.document:
-                    all_messages.append(m)
-        except Exception:
-            # Fallback for manual topic matching
-            async for m in c.get_chat_history(target_chat_id, limit=2500):
+        for media_filter in [enums.MessagesFilter.VIDEO, enums.MessagesFilter.DOCUMENT]:
+            try:
+                search_kwargs = {"chat_id": target_chat_id, "filter": media_filter, "limit": 1500}
                 if topic_id:
-                    msg_topic = getattr(m, "message_thread_id", None) or (m.reply_to_message_id if m.reply_to_message else None)
-                    if msg_topic != topic_id and m.id != topic_id:
+                    search_kwargs["message_thread_id"] = topic_id
+
+                async for m in c.search_messages(**search_kwargs):
+                    if m.id not in seen_ids:
+                        seen_ids.add(m.id)
+                        all_messages.append(m)
+            except Exception:
+                pass
+
+        if not all_messages:
+            async for m in c.get_chat_history(target_chat_id, limit=3000):
+                if topic_id:
+                    m_thread = getattr(m, "message_thread_id", None)
+                    m_reply = m.reply_to_message_id if m.reply_to_message else None
+                    top_id = getattr(getattr(m, "reply_to_message", None), "message_thread_id", None)
+                    if m_thread != topic_id and m_reply != topic_id and top_id != topic_id and m.id != topic_id:
                         continue
+
                 if m.video or m.document:
-                    all_messages.append(m)
+                    if m.id not in seen_ids:
+                        seen_ids.add(m.id)
+                        all_messages.append(m)
 
         if not all_messages:
             return await status_msg.edit_text(f"❌ આ ટોપિક/ચેનલમાં કોઈ વિડિયો કે PDF ફાઇલ મળી નથી.")
@@ -404,7 +454,6 @@ async def generate_channel_summary_auto(client, message):
             topic = extract_topic_from_text(raw_text)
             is_pdf = bool(m.document and (m.document.file_name.endswith('.pdf') if m.document.file_name else False))
             
-            # Topic link vs Normal link
             if topic_id:
                 jump_url = f"https://t.me/c/{clean_dest}/{topic_id}/{m.id}"
             else:
@@ -420,72 +469,4 @@ async def generate_channel_summary_auto(client, message):
             if is_pdf:
                 summary_data[topic]["pdfs"] += 1
             else:
-                summary_data[topic]["videos"] += 1
-
-        total_files = 0
-        topic_lines = []
-        for topic, stats in summary_data.items():
-            url = stats["url"]
-            v = stats["videos"]
-            p = stats["pdfs"]
-            total_files += (v + p)
-            topic_lines.append(f"- [{topic}]({url}) 🎥 {v} | 📄 {p}\n\n")
-
-        parts = []
-        curr_part = "📌 **Topic Summary**\n\n"
-        for line in topic_lines:
-            if len(curr_part) + len(line) > 3000:
-                parts.append(curr_part)
-                curr_part = "📌 **Topic Summary (Continued)**\n\n" + line
-            else:
-                curr_part += line
-
-        curr_part += "━━━━━━━━━━━━━━━━━━━━\n"
-        curr_part += f"✅ **Total Files:** `{total_files}`\n"
-        curr_part += "**__Powered By ╰‿╯ ҡσℓเ ⚝__**"
-        parts.append(curr_part)
-
-        first_msg = None
-        sender = userbot if userbot else app
-
-        for idx, part_text in enumerate(parts):
-            sent = None
-            try:
-                if topic_id:
-                    sent = await sender.send_message(target_chat_id, part_text, reply_to_message_id=topic_id, disable_web_page_preview=True)
-                else:
-                    sent = await sender.send_message(target_chat_id, part_text, disable_web_page_preview=True)
-            except Exception:
-                if topic_id:
-                    sent = await app.send_message(target_chat_id, part_text, reply_to_message_id=topic_id, disable_web_page_preview=True)
-                else:
-                    sent = await app.send_message(target_chat_id, part_text, disable_web_page_preview=True)
-
-            if idx == 0 and sent:
-                first_msg = sent
-                try:
-                    await first_msg.pin(both_sides=True)
-                except Exception:
-                    pass
-            await asyncio.sleep(1)
-
-        await status_msg.edit_text(f"✅ સમરી સફળતાપૂર્વક મોકલાઈ ગઈ અને પિન થઈ ગઈ!")
-
-    except Exception as e:
-        await status_msg.edit_text(f"❌ Error આવી: {e}")
-    finally:
-        if userbot:
-            try:
-                await userbot.stop()
-            except Exception:
-                pass
-
-@app.on_message(filters.command("cancel"))
-async def stop_batch(_, message):
-    user_id = message.chat.id
-    if user_id in users_loop and users_loop[user_id]:
-        users_loop[user_id] = False
-        await app.send_message(message.chat.id, "Batch processing has been stopped successfully.")
-    else:
-        await app.send_message(message.chat.id, "No active batch running.")
-    
+                summary_data[topic]["videos"] +=
