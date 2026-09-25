@@ -1,6 +1,6 @@
 # ---------------------------------------------------
 # File Name: main.py
-# Description: Auto Channel Scanner & Multi-Part Topic Summary
+# Description: Auto Channel/Topic Scanner & Multi-Part Topic Summary
 # Author: Gagan | Custom Mod for: ╰‿╯ ҡσℓเ ⚝
 # ---------------------------------------------------
 
@@ -32,7 +32,7 @@ def extract_topic_from_text(raw_text: str) -> str:
     if not raw_text:
         return "અન્ય વિષય"
 
-    # 1. Caption mathi 'Topic Name :' athva 'Topic :' vali line sodhvi
+    # 1. Caption માંથી 'Topic Name :' અથવા 'Topic :' વાળી લાઈન શોધવી
     topic_line_text = ""
     for line in raw_text.split("\n"):
         line_clean = line.strip()
@@ -42,7 +42,7 @@ def extract_topic_from_text(raw_text: str) -> str:
 
     text_to_search = f"{topic_line_text} {raw_text}".lower()
 
-    # 2. Mukhya vishayo nu list
+    # 2. મુખ્ય વિષયોનું લિસ્ટ
     subject_map = [
         (["કોમ્પ્યુટર", "computer", "કોમ્પ", "comp"], "કોમ્પ્યુટર"),
         (["ગણિત", "maths", "math", "mathematics"], "ગણિત"),
@@ -83,14 +83,14 @@ def extract_topic_from_text(raw_text: str) -> str:
             if kw in text_to_search:
                 return name
 
-    # 3. Jo teacher nu naam aave to te clean karvu
+    # 3. જો શિક્ષકનું નામ આવે તો સાફ કરવું
     if topic_line_text:
         clean_topic = re.sub(r'(?i)\b\w+\s+sir\b\s*[\-\—:]*\s*', '', topic_line_text).strip()
         if clean_topic:
             return clean_topic[:25]
         return topic_line_text[:25]
 
-    # 4. Faltu lines jem ke Index, Numbers ane ID ne ignore karvi
+    # 4. વધારાની માહિતી (Index, IDs વગેરે) અવગણવી
     for line in raw_text.split("\n"):
         clean_line = line.strip()
         if not clean_line:
@@ -297,22 +297,36 @@ async def batch_link(_, message):
                 pass
 
 # ---------------------------------------------------
-# Auto Scanner Command: /gen_summary (Subject Grouping Support)
+# Auto Scanner Command: /gen_summary (Supports Channel & Group Topics)
 # ---------------------------------------------------
 @app.on_message(filters.command("gen_summary"))
 async def generate_channel_summary_auto(client, message):
     user_id = message.chat.id
     target_chat_id = None
+    topic_id = None
 
     args = message.text.split()
     if len(args) > 1:
-        raw_arg = args[1].strip()
-        if not raw_arg.startswith("-100"):
-            raw_arg = "-100" + raw_arg.lstrip("-")
-        try:
-            target_chat_id = int(raw_arg)
-        except Exception:
-            pass
+        raw_input = args[1].strip()
+        if "/" in raw_input:
+            parts = raw_input.split("/")
+            chat_part = parts[0].strip()
+            topic_part = parts[1].strip()
+            if not chat_part.startswith("-100"):
+                chat_part = "-100" + chat_part.lstrip("-")
+            try:
+                target_chat_id = int(chat_part)
+                if topic_part.isdigit():
+                    topic_id = int(topic_part)
+            except Exception:
+                pass
+        else:
+            if not raw_input.startswith("-100"):
+                raw_input = "-100" + raw_input.lstrip("-")
+            try:
+                target_chat_id = int(raw_input)
+            except Exception:
+                pass
 
     if not target_chat_id:
         try:
@@ -326,20 +340,26 @@ async def generate_channel_summary_auto(client, message):
                 )
                 if raw_cid:
                     raw_str = str(raw_cid).strip()
-                    if not raw_str.startswith("-100"):
-                        raw_str = "-100" + raw_str.lstrip("-")
-                    target_chat_id = int(raw_str)
+                    if "/" in raw_str:
+                        p = raw_str.split("/")
+                        target_chat_id = int("-100" + p[0].lstrip("-"))
+                        if p[1].isdigit():
+                            topic_id = int(p[1])
+                    else:
+                        target_chat_id = int("-100" + raw_str.lstrip("-"))
         except Exception as e:
             print(f"Error fetching channel: {e}")
 
     if not target_chat_id:
         return await message.reply(
-            "⚠️ ચેનલ આઈડી મળ્યો નથી!\n\n"
-            "કૃપા કરીને `/settings` માં જઈને **Set Chat ID** કરો,\n"
-            "અથવા સીધું આ રીતે લખો:\n`/gen_summary -100XXXXXXXXXX`"
+            "⚠️ ચેનલ/ગ્રુપ આઈડી મળ્યો નથી!\n\n"
+            "આ રીતે લખો:\n"
+            "• સામાન્ય ચેનલ: `/gen_summary -100XXXXXXXXXX`\n"
+            "• ગ્રુપ ટોપિક: `/gen_summary -100XXXXXXXXXX/TOPIC_ID`"
         )
 
-    status_msg = await message.reply(f"🔍 ચેનલ `{target_chat_id}` માંથી વીડિયો સ્કેન થઈ રહ્યા છે...")
+    topic_info = f" (Topic: `{topic_id}`)" if topic_id else ""
+    status_msg = await message.reply(f"🔍 ગ્રુપ `{target_chat_id}`{topic_info} માંથી વિડિયો સ્કેન થઈ રહ્યા છે...")
     userbot = await initialize_userbot(user_id)
     c = userbot if userbot else app
 
@@ -349,6 +369,11 @@ async def generate_channel_summary_auto(client, message):
     try:
         all_messages = []
         async for m in c.get_chat_history(target_chat_id):
+            if topic_id:
+                msg_topic = getattr(m, "message_thread_id", None) or (m.reply_to_message_id if m.reply_to_message else None)
+                if msg_topic != topic_id and m.id != topic_id:
+                    continue
+
             if m.video or m.document:
                 all_messages.append(m)
 
@@ -363,7 +388,11 @@ async def generate_channel_summary_auto(client, message):
 
             topic = extract_topic_from_text(raw_text)
             is_pdf = bool(m.document and (m.document.file_name.endswith('.pdf') if m.document.file_name else False))
-            jump_url = f"https://t.me/c/{clean_dest}/{m.id}"
+            
+            if topic_id:
+                jump_url = f"https://t.me/c/{clean_dest}/{topic_id}/{m.id}"
+            else:
+                jump_url = f"https://t.me/c/{clean_dest}/{m.id}"
 
             if topic not in summary_data:
                 summary_data[topic] = {
@@ -378,7 +407,7 @@ async def generate_channel_summary_auto(client, message):
                 summary_data[topic]["videos"] += 1
 
         if not summary_data:
-            return await status_msg.edit_text(f"❌ ચેનલ `{target_chat_id}` માં કોઈ વીડિયો કે ફાઈલ મળી નથી.")
+            return await status_msg.edit_text(f"❌ આ ટોપિક/ચેનલમાં કોઈ વિડિયો કે ફાઇલ મળી નથી.")
 
         total_files = 0
         topic_lines = []
@@ -387,7 +416,6 @@ async def generate_channel_summary_auto(client, message):
             v = stats["videos"]
             p = stats["pdfs"]
             total_files += (v + p)
-            # Vishay na naam par click karta direct pehlo video khulse
             topic_lines.append(f"- [{topic}]({url}) 🎥 {v} | 📄 {p}\n\n")
 
         parts = []
@@ -410,9 +438,15 @@ async def generate_channel_summary_auto(client, message):
         for idx, part_text in enumerate(parts):
             sent = None
             try:
-                sent = await sender.send_message(target_chat_id, part_text, disable_web_page_preview=True)
+                if topic_id:
+                    sent = await sender.send_message(target_chat_id, part_text, reply_to_message_id=topic_id, disable_web_page_preview=True)
+                else:
+                    sent = await sender.send_message(target_chat_id, part_text, disable_web_page_preview=True)
             except Exception:
-                sent = await app.send_message(target_chat_id, part_text, disable_web_page_preview=True)
+                if topic_id:
+                    sent = await app.send_message(target_chat_id, part_text, reply_to_message_id=topic_id, disable_web_page_preview=True)
+                else:
+                    sent = await app.send_message(target_chat_id, part_text, disable_web_page_preview=True)
 
             if idx == 0 and sent:
                 first_msg = sent
@@ -422,7 +456,7 @@ async def generate_channel_summary_auto(client, message):
                     pass
             await asyncio.sleep(1)
 
-        await status_msg.edit_text(f"✅ ચેનલ `{target_chat_id}` માં સમરી મોકલાઈ ગઈ અને પિન થઈ ગઈ!")
+        await status_msg.edit_text(f"✅ સમરી સફળતાપૂર્વક મોકલાઈ ગઈ અને પિન થઈ ગઈ!")
 
     except Exception as e:
         await status_msg.edit_text(f"❌ Error આવી: {e}")
@@ -441,4 +475,4 @@ async def stop_batch(_, message):
         await app.send_message(message.chat.id, "Batch processing has been stopped successfully.")
     else:
         await app.send_message(message.chat.id, "No active batch running.")
-                      
+    
