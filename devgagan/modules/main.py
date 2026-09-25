@@ -1,472 +1,215 @@
-# ---------------------------------------------------
-# File Name: main.py
-# Description: Channel & Topic Auto Scanner with Subject & Chapter Wise Summary
-# Author: Gagan | Custom Mod for: ╰‿╯ ҡσℓเ ⚝
-# ---------------------------------------------------
-
-import time
-import random
-import string
-import asyncio
-import re
+import time, random, string, asyncio, re
 from pyrogram import filters, Client, enums
 from devgagan import app
 from config import API_ID, API_HASH, FREEMIUM_LIMIT, PREMIUM_LIMIT, OWNER_ID
 from devgagan.core.get_func import get_msg
 from devgagan.core.func import *
 from devgagan.core.mongo import db
-from pyrogram.enums import ParseMode
-from pyrogram.errors import FloodWait, MessageNotModified
 from datetime import datetime, timedelta
-from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
+from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from devgagan.modules.shrink import is_user_verified
 
-async def generate_random_name(length=8):
-    return ''.join(random.choices(string.ascii_lowercase, k=length))
+users_loop, interval_set, batch_mode = {}, {}, {}
 
-users_loop = {}
-interval_set = {}
-batch_mode = {}
+def get_tag(text, is_ch=False):
+    t = (text or "").lower()
+    ch_kws = [("સાદું વ્યાજ", ["સાદું વ્યાજ", "simple interest"]), ("નફો ખોટ", ["નફો", "profit"]), ("ટકાવારી", ["ટકાવારી", "percent"]), ("ગુણોત્તર", ["ગુણોત્તર", "ratio"]), ("સરેરાશ", ["સરેરાશ", "average"]), ("કામ સમય", ["કામ", "work"]), ("ઝડપ અંતર", ["ઝડપ", "speed", "ટ્રેન"]), ("ક્ષેત્રફળ", ["ક્ષેત્રફળ", "area"])]
+    sub_kws = [("ગણિત", ["ગણિત", "math"]), ("રીઝનીંગ", ["રીઝનીંગ", "reasoning"]), ("બંધારણ", ["બંધારણ", "polity"]), ("ઇતિહાસ", ["ઇતિહાસ", "history"]), ("ભૂગોળ", ["ભૂગોળ", "geography"]), ("ગુજરાતી", ["ગુજરાતી", "gujarati"]), ("અંગ્રેજી", ["અંગ્રેજી", "english"]), ("વિજ્ઞાન", ["વિજ્ઞાન", "science"]), ("કોમ્પ્યુટર", ["કોમ્પ્યુટર", "comp"]), ("કાયદો", ["કાયદો", "law"])]
+    for name, kws in (ch_kws if is_ch else sub_kws):
+        if any(k in t for k in kws): return name
+    for line in (text or "").split("\n"):
+        c = re.sub(r'(?i)^.*?(topic|chapter)\s*[:\-\—]\s*', '', line).strip()
+        if len(c) > 2 and not any(x in c.lower() for x in ["index", "vid", "http", "batch"]): return c[:20]
+    return "અન્ય"
 
-def extract_topic_from_text(raw_text: str) -> str:
-    if not raw_text:
-        return "અન્ય વિષય"
-
-    topic_line_text = ""
-    for line in raw_text.split("\n"):
-        line_clean = line.strip()
-        if re.search(r'(?i)\btopic(\s*name)?\s*[:\-\—]', line_clean):
-            topic_line_text = re.sub(r'(?i)^.*?\btopic(\s*name)?\s*[:\-\—]\s*', '', line_clean).strip()
-            break
-
-    text_to_search = f"{topic_line_text} {raw_text}".lower()
-
-    subject_map = [
-        (["કોમ્પ્યુટર", "computer", "કોમ્પ", "comp"], "કોમ્પ્યુટર"),
-        (["ગણિત", "maths", "math", "mathematics"], "ગણિત"),
-        (["રીઝનીંગ", "reasoning", "માનસિક ક્ષમતા", "mental ability"], "રીઝનીંગ"),
-        (["રોડ સેફટી", "road safety", "મોટર વ્હીકલ"], "રોડ સેફટી"),
-        (["ગુજરાતી વ્યાકરણ", "gujarati vyakaran", "gujarati grammar"], "ગુજરાતી વ્યાકરણ"),
-        (["ગુજરાતી સાહિત્ય", "gujarati sahitya", "sahitya"], "ગુજરાતી સાહિત્ય"),
-        (["ગુજરાતનો ઇતિહાસ", "ગુજરાતનો ઈતિહાસ", "gujarat no itihas", "gujarat itihas", "gujarat history"], "ગુજરાતનો ઇતિહાસ"),
-        (["ભારતનો ઇતિહાસ", "ભારતનો ઈતિહાસ", "bharat no itihas", "bharat itihas", "indian history"], "ભારતનો ઇતિહાસ"),
-        (["ગુજરાતનો સાંસ્કૃતિક વારસો", "ગુજરાતનો વારસો", "gujarat no sanskrutik varso"], "ગુજરાતનો સાંસ્કૃતિક વારસો"),
-        (["ભારતનો સાંસ્કૃતિક વારસો", "ભારતનો વારસો", "bharat no sanskrutik varso"], "ભારતનો સાંસ્કૃતિક વારસો"),
-        (["ગુજરાતની ભૂગોળ", "ગુજરાત ભૂગોળ", "gujarati bhugol", "gujarat bhugol", "gujarat geography"], "ગુજરાતની ભૂગોળ"),
-        (["ભારતની ભૂગોળ", "ભારત ભૂગોળ", "bharat ni bhugol", "bharat bhugol", "indian geography"], "ભારતની ભૂગોળ"),
-        (["વિશ્વ ભૂગોળ", "વિશ્વની ભૂગોળ", "vishva bhugol", "world geography"], "વિશ્વની ભૂગોળ"),
-        (["ભારતીય બંધારણ", "બંધારણ", "bhartiy bandharan", "bandharan", "polity", "constitution"], "ભારતીય બંધારણ"),
-        (["પત્ર લેખન", "patra lekhan"], "પત્ર લેખન"),
-        (["અહિરવાલ", "ahirwal"], "અહિરવાલ"),
-        (["પર્યાવરણ", "paryavaran", "environment", "ફોરેસ્ટ", "વનરક્ષક"], "પર્યાવરણ"),
-        (["ઇંગ્લિશ ગ્રામર", "અંગ્રેજી વ્યાકરણ", "english grammar"], "ઇંગ્લિશ ગ્રામર"),
-        (["અંગ્રેજી", "ઇંગ્લિશ", "english", "eng"], "અંગ્રેજી"),
-        (["ગુજરાતી", "gujarati"], "ગુજરાતી"),
-        (["સામાન્ય વિજ્ઞાન", "વિજ્ઞાન", "science", "general science", "સાયન્સ"], "સામાન્ય વિજ્ઞાન"),
-        (["વિજ્ઞાન અને ટેકનોલોજી", "science and tech"], "વિજ્ઞાન અને ટેકનોલોજી"),
-        (["કાયદો", "law", "ipc", "crpc", "evidence act", "પોલીસ કાયદો"], "કાયદો"),
-        (["પંચાયતી રાજ", "panchayati raj"], "પંચાયતી રાજ"),
-        (["જાહેર વહીવટ", "public administration", "pub ad"], "જાહેર વહીવટ"),
-        (["અર્થશાસ્ત્ર", "અર્થતંત્ર", "economics", "economy"], "અર્થશાસ્ત્ર"),
-        (["કરંટ અફેર્સ", "વર્તમાન પ્રવાહો", "current affairs", "current"], "કરંટ અફેર્સ"),
-        (["સામાન્ય જ્ઞાન", "જનરલ નોલેજ", "gk", "general knowledge"], "સામાન્ય જ્ઞાન"),
-        (["કંડક્ટર", "ડ્રાઈવર", "conductor"], "કંડક્ટર સ્પેશિયલ"),
-        (["નીતિશાસ્ત્ર", "ethics"], "નીતિશાસ્ત્ર"),
-        (["આપત્તિ વ્યવસ્થાપન", "disaster management"], "આપત્તિ વ્યવસ્થાપન"),
-        (["સરકારી યોજનાઓ", "યોજનાઓ", "yojana", "yojna"], "સરકારી યોજનાઓ")
-    ]
-
-    for kws, name in subject_map:
-        for kw in kws:
-            if kw in text_to_search:
-                return name
-
-    if topic_line_text:
-        clean_topic = re.sub(r'(?i)\b\w+\s+sir\b\s*[\-\—:]*\s*', '', topic_line_text).strip()
-        if clean_topic:
-            return clean_topic[:25]
-        return topic_line_text[:25]
-
-    for line in raw_text.split("\n"):
-        clean_line = line.strip()
-        if not clean_line:
-            continue
-        if any(x in clean_line.lower() for x in ["index", "vid id", "pdf id", "batch name", "log info", "saved by", "user id", "file title"]):
-            continue
-        if re.match(r'^[\s\-_:0-9\(\)\[\]\.\/]+$', clean_line):
-            continue
-        clean_line = re.sub(r'(\.pdf|\.mkv|\.mp4)', '', clean_line, flags=re.IGNORECASE).strip()
-        if len(clean_line) > 2:
-            return clean_line[:25]
-
-    return "અન્ય વિષય"
-
-def extract_chapter_from_text(raw_text: str) -> str:
-    """ગણિત કે અન્ય વિષયના ચેપ્ટર શોધવા માટેનું ફંક્શન"""
-    if not raw_text:
-        return "સામાન્ય પ્રકરણ"
-
-    for line in raw_text.split("\n"):
-        line_clean = line.strip()
-        if re.search(r'(?i)\b(chapter|ch|topic(\s*name)?)\s*[:\-\—]', line_clean):
-            ch_name = re.sub(r'(?i)^.*?\b(chapter|ch|topic(\s*name)?)\s*[:\-\—]\s*', '', line_clean).strip()
-            ch_name = re.sub(r'(?i)\b\w+\s+sir\b\s*[\-\—:]*\s*', '', ch_name).strip()
-            ch_name = re.sub(r'(?i)\b(part|lec|lecture|\d+|video)\b.*', '', ch_name).strip()
-            if len(ch_name) > 2:
-                return ch_name[:30]
-
-    # ગણિતના સામાન્ય પ્રકરણોનું લિસ્ટ
-    math_chapters = [
-        (["સાદું વ્યાજ", "sadu vyaj", "simple interest", "si"], "સાદું વ્યાજ"),
-        (["ચક્રવૃદ્ધિ વ્યાજ", "chakravrudhi vyaj", "compound interest", "ci"], "ચક્રવૃદ્ધિ વ્યાજ"),
-        (["નફો ખોટ", "નફો અને ખોટ", "nafo khot", "profit and loss", "profit loss"], "નફો અને ખોટ"),
-        (["ટકાવારી", "takavari", "percentage", "percent"], "ટકાવારી"),
-        (["ગુણોત્તર અને પ્રમાણ", "ગુણોત્તર", "gunottar", "ratio and proportion", "ratio"], "ગુણોત્તર અને પ્રમાણ"),
-        (["સરેરાશ", "sarerash", "average", "avg"], "સરેરાશ"),
-        (["કામ અને મહેનતાણું", "કામ સમય", "kam ane samay", "time and work", "work and time"], "કામ અને સમય"),
-        (["નળ અને ટાંકી", "nal ane tanki", "pipes and cistern", "pipe and cistern"], "નળ અને ટાંકી"),
-        (["અંતર અને સમય", "ઝડપ અને અંતર", "antar ane samay", "time speed distance", "speed and distance"], "ઝડપ, અંતર અને સમય"),
-        (["ટ્રેન", "train", "રેલવે"], "ટ્રેન આધારિત દાખલા"),
-        (["હોડી અને પ્રવાહ", "hodi ane pravah", "boat and stream"], "હોડી અને પ્રવાહ"),
-        (["ભાગીદારી", "bhagidari", "partnership"], "ભાગીદારી"),
-        (["મિશ્રણ", "mishran", "alligation", "mixture"], "મિશ્રણ"),
-        (["ઉંમર આધારિત", "ઉંમર", "umar", "problems on ages", "age"], "ઉંમર આધારિત દાખલા"),
-        (["ક્ષેત્રફળ", "khetrafal", "area", "પરિમિતિ"], "ક્ષેત્રફળ અને પરિમિતિ"),
-        (["ઘનફળ", "ghanfal", "volume", "પૃષ્ઠફળ"], "ઘનફળ અને પૃષ્ઠફળ"),
-        (["સાદુરૂપ", "sadurup", "simplification"], "સાદુરૂપ"),
-        (["સંખ્યા પદ્ધતિ", "sankhya padhdhati", "number system"], "સંખ્યા પદ્ધતિ"),
-        (["લ.સા.અ", "ગુ.સા.અ", "lcm", "hcf", "lcm hcf"], "લ.સા.અ અને ગુ.સા.અ")
-    ]
-
-    text_lower = raw_text.lower()
-    for kws, name in math_chapters:
-        for kw in kws:
-            if kw in text_lower:
-                return name
-
-    return extract_topic_from_text(raw_text)
-
-async def check_interval(user_id, freecheck):
-    if freecheck != 1 or await is_user_verified(user_id):
-        return True, None
-
+async def check_interval(u_id, freecheck):
+    if freecheck != 1 or await is_user_verified(u_id): return True, None
     now = datetime.now()
-    if user_id in interval_set:
-        cooldown_end = interval_set[user_id]
-        if now < cooldown_end:
-            remaining_time = (cooldown_end - now).seconds
-            return False, f"Please wait {remaining_time} seconds(s) before sending another link.\n\n> Hey 👋 You can use /token to use the bot free for 3 hours."
-        else:
-            del interval_set[user_id]
-
+    if u_id in interval_set and now < interval_set[u_id]:
+        return False, f"Please wait {(interval_set[u_id] - now).seconds}s before next link."
     return True, None
 
-async def set_interval(user_id, interval_minutes=45):
-    now = datetime.now()
-    interval_set[user_id] = now + timedelta(seconds=interval_minutes)
-
-async def initialize_userbot(user_id):
-    data = await db.get_data(user_id)
+async def initialize_userbot(u_id):
+    data = await db.get_data(u_id)
     if data and data.get("session"):
         try:
-            device = 'iPhone 16 Pro'
-            ub = Client(
-                "userbot",
-                api_id=API_ID,
-                api_hash=API_HASH,
-                device_model=device,
-                session_string=data.get("session")
-            )
+            ub = Client("userbot", api_id=API_ID, api_hash=API_HASH, device_model='iPhone 16 Pro', session_string=data.get("session"))
             await ub.start()
             return ub
-        except Exception as e:
-            print(f"Userbot error: {e}")
-            return None
+        except Exception: pass
     return None
 
-async def is_normal_tg_link(link: str) -> bool:
-    return 't.me/' in link and not any(x in link for x in ['t.me/+', 't.me/c/', 't.me/b/', 'tg://openmessage'])
-
-async def process_and_upload_link(userbot, user_id, msg_id, link, retry_count, message):
-    try:
-        await get_msg(userbot, user_id, msg_id, link, retry_count, message)
-        await asyncio.sleep(4)
-    except Exception as e:
-        print(f"Error in upload: {e}")
-
-@app.on_message(
-    filters.regex(r'https?://(?:www\.)?t\.me/[^\s]+|tg://openmessage\?user_id=\w+&message_id=\d+')
-    & filters.private
-)
-async def single_link(_, message):
-    user_id = message.chat.id
-
-    if await subscribe(_, message) == 1 or user_id in batch_mode:
-        return
-
-    if users_loop.get(user_id, False):
-        await message.reply("You already have an ongoing process. Please wait or use /cancel.")
-        return
-
-    if await chk_user(message, user_id) == 1 and FREEMIUM_LIMIT == 0 and user_id not in OWNER_ID and not await is_user_verified(user_id):
-        await message.reply("Freemium service is not available.")
-        return
-
-    can_proceed, response_message = await check_interval(user_id, await chk_user(message, user_id))
-    if not can_proceed:
-        await message.reply(response_message)
-        return
-
-    users_loop[user_id] = True
-    link = message.text if "tg://openmessage" in message.text else get_link(message.text)
-    msg = await message.reply("Processing...")
-    userbot = await initialize_userbot(user_id)
-
-    try:
-        if await is_normal_tg_link(link):
-            await process_and_upload_link(userbot, user_id, msg.id, link, 0, message)
-            await set_interval(user_id, interval_minutes=45)
-        else:
-            if 't.me/+' in link:
-                await msg.edit_text(await userbot_join(userbot, link))
-            elif any(sub in link for sub in ['t.me/c/', 't.me/b/', '/s/', 'tg://openmessage']):
-                await process_and_upload_link(userbot, user_id, msg.id, link, 0, msg)
-                await set_interval(user_id, interval_minutes=45)
-    except Exception as e:
-        await msg.edit_text(f"Error: {str(e)}")
-    finally:
-        users_loop[user_id] = False
-        if userbot:
-            try:
-                await userbot.stop()
-            except Exception:
-                pass
-        try:
-            await msg.delete()
-        except Exception:
-            pass
-
-@app.on_message(filters.command("batch") & filters.private)
-async def batch_link(_, message):
-    if await subscribe(_, message) == 1:
-        return
-    user_id = message.chat.id
-
-    if users_loop.get(user_id, False):
-        return await app.send_message(message.chat.id, "Batch process already running.")
-
-    freecheck = await chk_user(message, user_id)
-    max_batch_size = PREMIUM_LIMIT if (freecheck != 1 or user_id in OWNER_ID) else (30 if await is_user_verified(user_id) else FREEMIUM_LIMIT)
-
-    for _ in range(3):
-        await app.send_photo(message.chat.id, photo="https://i.postimg.cc/BXkchVpY/image.jpg", caption="Just Copy Post Link And Send it To Me.\n\nજ્યાંથી શરૂ કરવું હોય તે પોસ્ટની લિંક મોકલો:")
-        start = await app.ask(message.chat.id, "🎯 Send The Link For Where I Need To Start Process From \n\n> You Have Only 3 Tries")
-        start_id = start.text.strip()
-        if start_id.split("/")[-1].isdigit():
-            cs = int(start_id.split("/")[-1])
-            break
-    else:
-        return await app.send_message(message.chat.id, "Maximum attempts exceeded.")
-
-    for _ in range(3):
-        num_messages = await app.ask(message.chat.id, f"How many messages do you want to process? 🌝\n> Max limit {max_batch_size}")
-        try:
-            cl = int(num_messages.text.strip())
-            if 1 <= cl <= max_batch_size:
-                break
-        except ValueError:
-            pass
-    else:
-        return await app.send_message(message.chat.id, "Invalid number.")
-
-    join_button = InlineKeyboardButton("Join Channel", url="https://t.me/SRC_PRO")
-    keyboard = InlineKeyboardMarkup([[join_button]])
-
-    pin_msg = await app.send_message(
-        user_id,
-        f"Batch process started ⚡\nProcessing: 0/{cl}\n\n**Powered By ╰‿╯ ҡσℓเ ⚝**",
-        reply_markup=keyboard
-    )
-    try:
-        await pin_msg.pin(both_sides=True)
-    except Exception:
-        pass
-    users_loop[user_id] = True
-
-    try:
-        userbot = await initialize_userbot(user_id)
-
-        for i in range(cs, cs + cl):
-            if not users_loop.get(user_id, False):
-                break
-
-            url = f"{'/'.join(start_id.split('/')[:-1])}/{i}"
-            link = get_link(url)
-
-            if any(x in link for x in ['t.me/b/', 't.me/c/']) and not userbot:
-                await app.send_message(message.chat.id, "⚠️ આ પ્રાઈવેટ ચેનલ છે! કૃપા કરીને પહેલા /login કરો.")
-                break
-
-            msg = await app.send_message(message.chat.id, "Processing...")
-            await process_and_upload_link(userbot, user_id, msg.id, link, 0, message)
-
-            try:
-                await pin_msg.edit_text(
-                    f"Batch process started ⚡\nProcessing: {i - cs + 1}/{cl}\n\n**__Powered By ╰‿╯ ҡσℓเ ⚝__**",
-                    reply_markup=keyboard
-                )
-            except Exception:
-                pass
-
-        await set_interval(user_id, interval_minutes=300)
-        try:
-            await pin_msg.edit_text(
-                f"Batch completed successfully for {cl} messages 🎉\n\n**__Powered By ╰‿╯ ҡσℓเ ⚝__**",
-                reply_markup=keyboard
-            )
-        except Exception:
-            pass
-
-    except Exception as e:
-        await app.send_message(message.chat.id, f"Error: {e}")
-    finally:
-        users_loop.pop(user_id, None)
-        if userbot:
-            try:
-                await userbot.stop()
-            except Exception:
-                pass
-
-# ---------------------------------------------------
-# Auto Scanner 1: /gen_summary (Subject Level Summary)
-# ---------------------------------------------------
-@app.on_message(filters.command("gen_summary"))
-async def generate_channel_summary_auto(client, message):
-    user_id = message.chat.id
-    target_chat_id = None
-    topic_id = None
-
+async def run_fast_summary(message, is_ch=False):
+    u_id, target, topic_id = message.chat.id, None, None
     args = message.text.split()
     if len(args) > 1:
-        raw_input = args[1].strip()
-        if "/" in raw_input:
-            parts = raw_input.split("/")
-            chat_part = parts[0].strip()
-            topic_part = parts[1].strip()
-            if not chat_part.startswith("-100"):
-                chat_part = "-100" + chat_part.lstrip("-")
-            try:
-                target_chat_id = int(chat_part)
-                if topic_part.isdigit():
-                    topic_id = int(topic_part)
-            except Exception:
-                pass
-        else:
-            if not raw_input.startswith("-100"):
-                raw_input = "-100" + raw_input.lstrip("-")
-            try:
-                target_chat_id = int(raw_input)
-            except Exception:
-                pass
+        raw = args[1].strip()
+        p = raw.split("/") if "/" in raw else [raw, None]
+        target = int("-100" + p[0].replace("-100", "").lstrip("-"))
+        if p[1] and p[1].isdigit(): topic_id = int(p[1])
+    if not target:
+        ud = await db.get_data(u_id) or {}
+        raw = str(ud.get("chat_id") or ud.get("dump_id") or "")
+        if raw:
+            p = raw.split("/") if "/" in raw else [raw, None]
+            target = int("-100" + p[0].replace("-100", "").lstrip("-"))
+            if p[1] and p[1].isdigit(): topic_id = int(p[1])
+    if not target: return await message.reply("⚠️ Target ID lakho: `/gen_summary ID` ke `/chapter_summary ID`")
 
-    if not target_chat_id:
+    st = await message.reply("⚡ Scanning fast...")
+    ub = await initialize_userbot(u_id)
+    c = ub if ub else app
+    msgs, seen = [], set()
+
+    for flt in [enums.MessagesFilter.VIDEO, enums.MessagesFilter.DOCUMENT]:
         try:
-            user_settings = await db.get_data(user_id)
-            if user_settings:
-                raw_cid = (
-                    user_settings.get("chat_id")
-                    or user_settings.get("channel_id")
-                    or user_settings.get("dump_id")
-                    or user_settings.get("target_chat")
-                )
-                if raw_cid:
-                    raw_str = str(raw_cid).strip()
-                    if "/" in raw_str:
-                        p = raw_str.split("/")
-                        target_chat_id = int("-100" + p[0].lstrip("-"))
-                        if p[1].isdigit():
-                            topic_id = int(p[1])
-                    else:
-                        target_chat_id = int("-100" + raw_str.lstrip("-"))
-        except Exception as e:
-            print(f"Error fetching channel: {e}")
+            kw = {"chat_id": target, "filter": flt, "limit": 1500}
+            if topic_id: kw["message_thread_id"] = topic_id
+            async for m in c.search_messages(**kw):
+                if m.id not in seen: seen.add(m.id); msgs.append(m)
+        except Exception: pass
 
-    if not target_chat_id:
-        return await message.reply(
-            "⚠️ ચેનલ/ગ્રુપ આઈડી મળ્યો નથી!\n\n"
-            "આ રીતે લખો:\n"
-            "• સામાન્ય ચેનલ: `/gen_summary -100XXXXXXXXXX`\n"
-            "• ગ્રુપ ટોપિક: `/gen_summary -100XXXXXXXXXX/TOPIC_ID`"
-        )
-
-    topic_info = f" (Topic: `{topic_id}`)" if topic_id else ""
-    status_msg = await message.reply(f"⚡ ગ્રુપ `{target_chat_id}`{topic_info} સ્કેન થઈ રહ્યું છે...")
-    userbot = await initialize_userbot(user_id)
-    c = userbot if userbot else app
-
-    summary_data = {}
-    clean_dest = str(target_chat_id).replace("-100", "").replace("-", "")
-
-    try:
-        all_messages = []
-        seen_ids = set()
-
-        for media_filter in [enums.MessagesFilter.VIDEO, enums.MessagesFilter.DOCUMENT]:
-            try:
-                search_kwargs = {"chat_id": target_chat_id, "filter": media_filter, "limit": 1500}
-                if topic_id:
-                    search_kwargs["message_thread_id"] = topic_id
-
-                async for m in c.search_messages(**search_kwargs):
-                    if m.id not in seen_ids:
-                        seen_ids.add(m.id)
-                        all_messages.append(m)
-            except Exception:
-                pass
-
-        if not all_messages:
-            async for m in c.get_chat_history(target_chat_id, limit=3000):
-                if topic_id:
-                    m_thread = getattr(m, "message_thread_id", None)
-                    m_reply = m.reply_to_message_id if m.reply_to_message else None
-                    top_id = getattr(getattr(m, "reply_to_message", None), "message_thread_id", None)
-                    if m_thread != topic_id and m_reply != topic_id and top_id != topic_id and m.id != topic_id:
-                        continue
-
-                if m.video or m.document:
-                    if m.id not in seen_ids:
-                        seen_ids.add(m.id)
-                        all_messages.append(m)
-
-        if not all_messages:
-            return await status_msg.edit_text(f"❌ આ ટોપિક/ચેનલમાં કોઈ વિડિયો કે PDF ફાઇલ મળી નથી.")
-
-        await status_msg.edit_text(f"📊 {len(all_messages)} ફાઈલો મળી! સમરી તૈયાર થઈ રહી છે...")
-        all_messages.reverse()
-
-        for m in all_messages:
-            raw_text = m.caption or m.text or ""
-            if not raw_text and m.video and m.video.file_name:
-                raw_text = m.video.file_name
-            elif not raw_text and m.document and m.document.file_name:
-                raw_text = m.document.file_name
-
-            topic = extract_topic_from_text(raw_text)
-            is_pdf = bool(m.document and (m.document.file_name.endswith('.pdf') if m.document.file_name else False))
-            
+    if not msgs:
+        async for m in c.get_chat_history(target, limit=2000):
             if topic_id:
-                jump_url = f"https://t.me/c/{clean_dest}/{topic_id}/{m.id}"
-            else:
-                jump_url = f"https://t.me/c/{clean_dest}/{m.id}"
+                mt = getattr(m, "message_thread_id", None) or (m.reply_to_message_id if m.reply_to_message else None)
+                if mt != topic_id and m.id != topic_id: continue
+            if (m.video or m.document) and m.id not in seen:
+                seen.add(m.id); msgs.append(m)
 
-            if topic not in summary_data:
-                summary_data[topic] = {
-                    "url": jump_url,
-                    "videos": 0,
-                    "pdfs": 0
-                }
+    if not msgs:
+        if ub: await ub.stop()
+        return await st.edit_text("❌ Koi file mali nathi.")
 
-            if is_pdf:
-                summary_data[topic]["pdfs"] += 1
-            else:
-                summary_data[topic]["videos"] +=
+    msgs.reverse()
+    clean = str(target).replace("-100", "").replace("-", "")
+    data = {}
+
+    for m in msgs:
+        txt = m.caption or m.text or (m.video.file_name if m.video else "") or (m.document.file_name if m.document else "")
+        tag = get_tag(txt, is_ch)
+        is_pdf = bool(m.document and m.document.file_name and m.document.file_name.endswith('.pdf'))
+        url = f"https://t.me/c/{clean}/{topic_id}/{m.id}" if topic_id else f"https://t.me/c/{clean}/{m.id}"
+        data.setdefault(tag, []).append((url, is_pdf))
+
+    txt_lines = []
+    if is_ch:
+        for ch, items in data.items():
+            vl, pl = [], []
+            for u, pdf in items:
+                if pdf: pl.append(f"[PDF {len(pl)+1}]({u})")
+                else: vl.append(f"[Part {len(vl)+1}]({u})")
+            b = f"📂 **{ch}**\n"
+            if vl: b += "🎥 " + " | ".join(vl) + "\n"
+            if pl: b += "📄 " + " | ".join(pl) + "\n"
+            txt_lines.append(b + "\n")
+    else:
+        for sub, items in data.items():
+            v, p = sum(1 for _, x in items if not x), sum(1 for _, x in items if x)
+            txt_lines.append(f"- [{sub}]({items[0][0]}) 🎥 {v} | 📄 {p}\n\n")
+
+    parts, cur = [], ("📚 **Chapter Index**\n\n" if is_ch else "📌 **Topic Summary**\n\n")
+    for l in txt_lines:
+        if len(cur) + len(l) > 3000: parts.append(cur); cur = l
+        else: cur += l
+    cur += f"━━━━━━━━━━━━━━━━━━━━\n✅ Total Files: `{len(msgs)}`\n**__Powered By ╰‿╯ ҡσℓเ ⚝__**"
+    parts.append(cur)
+
+    sender = ub if ub else app
+    for i, p in enumerate(parts):
+        try:
+            s = await sender.send_message(target, p, reply_to_message_id=topic_id, disable_web_page_preview=True) if topic_id else await sender.send_message(target, p, disable_web_page_preview=True)
+        except Exception:
+            s = await app.send_message(target, p, reply_to_message_id=topic_id, disable_web_page_preview=True) if topic_id else await app.send_message(target, p, disable_web_page_preview=True)
+        if i == 0 and s:
+            try: await s.pin(both_sides=True)
+            except Exception: pass
+        await asyncio.sleep(1)
+
+    if ub: await ub.stop()
+    await st.edit_text("✅ Summary moklai gai ane PIN thai gai!")
+
+@app.on_message(filters.regex(r'https?://(?:www\.)?t\.me/[^\s]+|tg://openmessage\?user_id=\w+&message_id=\d+') & filters.private)
+async def single_link(_, m):
+    u_id = m.chat.id
+    if await subscribe(_, m) == 1 or u_id in batch_mode or users_loop.get(u_id, False): return
+    chk = await chk_user(m, u_id)
+    if chk == 1 and FREEMIUM_LIMIT == 0 and u_id not in OWNER_ID and not await is_user_verified(u_id):
+        return await m.reply("Freemium not available.")
+    can, res = await check_interval(u_id, chk)
+    if not can: return await m.reply(res)
+
+    users_loop[u_id] = True
+    lnk = m.text if "tg://openmessage" in m.text else get_link(m.text)
+    msg = await m.reply("Processing...")
+    ub = await initialize_userbot(u_id)
+    try:
+        if 't.me/' in lnk and not any(x in lnk for x in ['t.me/+', 't.me/c/', 't.me/b/', 'tg://openmessage']):
+            await get_msg(ub, u_id, msg.id, lnk, 0, m)
+            interval_set[u_id] = datetime.now() + timedelta(seconds=45)
+        elif 't.me/+' in lnk:
+            await msg.edit_text(await userbot_join(ub, lnk))
+        elif any(sub in lnk for sub in ['t.me/c/', 't.me/b/', '/s/', 'tg://openmessage']):
+            await get_msg(ub, u_id, msg.id, lnk, 0, msg)
+            interval_set[u_id] = datetime.now() + timedelta(seconds=45)
+    except Exception as e: await msg.edit_text(f"Error: {e}")
+    finally:
+        users_loop[u_id] = False
+        if ub: await ub.stop()
+        try: await msg.delete()
+        except Exception: pass
+
+@app.on_message(filters.command("batch") & filters.private)
+async def batch_link(_, m):
+    if await subscribe(_, m) == 1 or users_loop.get(m.chat.id, False): return
+    u_id = m.chat.id
+    free = await chk_user(m, u_id)
+    mx = PREMIUM_LIMIT if (free != 1 or u_id in OWNER_ID) else (30 if await is_user_verified(u_id) else FREEMIUM_LIMIT)
+
+    for _ in range(3):
+        st = await app.ask(u_id, "🎯 Start Link moklo:")
+        if st.text.strip().split("/")[-1].isdigit():
+            cs = int(st.text.strip().split("/")[-1])
+            start_url = st.text.strip()
+            break
+    else: return await m.reply("Max limit reached.")
+
+    for _ in range(3):
+        nm = await app.ask(u_id, f"Ketla messages karva chhe? (Max {mx}):")
+        if nm.text.strip().isdigit() and 1 <= int(nm.text.strip()) <= mx:
+            cl = int(nm.text.strip())
+            break
+    else: return await m.reply("Invalid number.")
+
+    p_msg = await m.reply(f"Batch started ⚡ (0/{cl})")
+    users_loop[u_id] = True
+    ub = await initialize_userbot(u_id)
+    try:
+        for i in range(cs, cs + cl):
+            if not users_loop.get(u_id, False): break
+            url = f"{'/'.join(start_url.split('/')[:-1])}/{i}"
+            lnk = get_link(url)
+            msg = await m.reply("Processing...")
+            await get_msg(ub, u_id, msg.id, lnk, 0, m)
+            try: await p_msg.edit_text(f"Processing: {i - cs + 1}/{cl}")
+            except Exception: pass
+            await asyncio.sleep(3)
+        await p_msg.edit_text("Batch Completed 🎉")
+    finally:
+        users_loop.pop(u_id, None)
+        if ub: await ub.stop()
+
+@app.on_message(filters.command("gen_summary"))
+async def cmd_gen_sum(_, m): await run_fast_summary(m, False)
+
+@app.on_message(filters.command("chapter_summary"))
+async def cmd_ch_sum(_, m): await run_fast_summary(m, True)
+
+@app.on_message(filters.command("cancel"))
+async def stop_batch(_, m):
+    if users_loop.get(m.chat.id, False):
+        users_loop[m.chat.id] = False
+        await m.reply("Stopped successfully.")
+    else:
+        await m.reply("No active batch.")
+            
