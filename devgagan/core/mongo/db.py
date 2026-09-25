@@ -85,4 +85,31 @@ async def remove_channel(user_id):
 async def delete_session(user_id):
     """Delete the session associated with the given user_id from the database."""
     await db.update_one({"_id": user_id}, {"$unset": {"session": ""}})
+
+
+# --- રીડીમ કોડ ડેટાબેઝ સિસ્ટમ ---
+async def create_redeem_code(code: str, hours: int = 5):
+    await db.redeem_codes.insert_one({
+        "code": code,
+        "hours": hours,
+        "created_at": datetime.now()
+    })
+
+async def use_redeem_code(code: str, user_id: int):
+    code_data = await db.redeem_codes.find_one({"code": code})
+    if not code_data:
+        return False, "❌ આ રીડીમ કોડ અમાન્ય છે અથવા પહેલેથી વપરાઈ ગયો છે!"
+    
+    hours = code_data.get("hours", 5)
+    expiry = datetime.now() + timedelta(hours=hours)
+    
+    await db.users.update_one(
+        {"user_id": user_id},
+        {"$set": {"plan": "premium", "expiry": expiry}},
+        upsert=True
+    )
+    
+    await db.redeem_codes.delete_one({"code": code})
+    return True, f"✅ અભિનંદન! તમારા એકાઉન્ટમાં `{hours}` કલાક માટે પ્રીમિયમ ચાલુ થઈ ગયું છે!\n⏳ પૂર્ણ થવાનો સમય: {expiry.strftime('%Y-%m-%d %I:%M %p')}"
+    
  
