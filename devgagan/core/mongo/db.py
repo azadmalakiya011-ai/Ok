@@ -90,6 +90,7 @@ async def delete_session(user_id):
 # --- રીડીમ કોડ ડેટાબેઝ સિસ્ટમ ---
 from datetime import datetime, timedelta
 
+# --- 5 Hours Redeem Database Logic ---
 async def create_redeem_code(code: str, hours: int = 5):
     await db.redeem_codes.insert_one({
         "code": code,
@@ -105,14 +106,16 @@ async def use_redeem_code(code: str, user_id: int):
     hours = code_data.get("hours", 5)
     expiry = datetime.now() + timedelta(hours=hours)
     
+    # User na core data ma expiry set thase jethi /myplan ma pan batavshe
     await db.users.update_one(
         {"user_id": user_id},
-        {"$set": {"plan": "premium", "expiry": expiry}},
+        {"$set": {"plan": "premium", "expiry": expiry, "expire_date": expiry}},
         upsert=True
     )
     
     await db.redeem_codes.delete_one({"code": code})
-    return True, f"✅ અભિનંદન! તમારા એકાઉન્ટમાં `{hours}` કલાક માટે પ્રીમિયમ ચાલુ થઈ ગયું છે!\n⏳ પૂર્ણ થવાનો સમય: {expiry.strftime('%Y-%m-%d %I:%M %p')}"
+    return True, f"✅ અભિનંદન! તમારા એકાઉન્ટમાં `{hours}` કલાક માટે પ્રીમિયમ ચાલુ થઈ ગયું છે!\n⏳ પૂર્ણ થવાનો સમય: {expiry.strftime('%Y-%m-%d %I:%M %p')}\n\n**__Powered By ╰‿╯ ҡσℓเ ⚝__**"
+    
     
     
  
