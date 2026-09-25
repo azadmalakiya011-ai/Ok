@@ -271,3 +271,60 @@ async def stop_batch(_, m):
     else:
         await m.reply("No active batch.")
         
+
+# --- રીડીમ કોડ કમાન્ડ્સ ---
+import secrets
+
+@app.on_message(filters.command("gen_code") & filters.private)
+async def generate_code_handler(client, message):
+    user_id = message.chat.id
+    if user_id not in OWNER_ID:
+        return await message.reply("⚠️ આ કમાન્ડ ફક્ત એડમિન જ વાપરી શકે છે!")
+    
+    args = message.text.split()
+    count = 1
+    if len(args) > 1 and args[1].isdigit():
+        count = int(args[1])
+        if count > 20:
+            count = 20
+
+    from devgagan.core.mongo.db import create_redeem_code
+    generated_codes = []
+
+    for _ in range(count):
+        code = f"SRC-{secrets.token_hex(3).upper()}"
+        await create_redeem_code(code, hours=5)
+        generated_codes.append(f"`{code}`")
+
+    if count == 1:
+        text = (
+            f"🎉 **૫ કલાકનો નવો રીડીમ કોડ!**\n\n"
+            f"🔑 **કોડ:** {generated_codes[0]}\n"
+            f"⏳ **સમયગાળો:** ૫ કલાક\n\n"
+            f"👉 વાપરવા માટે: `/redeem {generated_codes[0]}`"
+        )
+    else:
+        codes_list = "\n".join([f"• {c}" for c in generated_codes])
+        text = (
+            f"🎉 **કુલ {count} રીડીમ કોડ બની ગયા છે!** (દરેક ૫ કલાક માટે)\n\n"
+            f"{codes_list}\n\n"
+            f"💡 *મેમ્બરને આમાંથી એક કોડ આપો અને કહો કે બોટમાં `/redeem CODE` મોકલે.*"
+        )
+
+    await message.reply(text)
+
+
+@app.on_message(filters.command("redeem") & filters.private)
+async def redeem_code_handler(client, message):
+    user_id = message.chat.id
+    args = message.text.split()
+    
+    if len(args) < 2:
+        return await message.reply("⚠️ કોડ લખવો જરૂરી છે!\n\nઆ રીતે લખો: `/redeem SRC-XXXXXX`")
+    
+    code = args[1].strip()
+    from devgagan.core.mongo.db import use_redeem_code
+    success, res_msg = await use_redeem_code(code, user_id)
+    
+    await message.reply(res_msg)
+    
