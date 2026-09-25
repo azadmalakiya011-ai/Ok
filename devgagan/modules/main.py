@@ -11,22 +11,77 @@ from devgagan.modules.shrink import is_user_verified
 
 users_loop, interval_set, batch_mode = {}, {}, {}
 
-def get_tag(text, is_ch=False):
+def get_clean_name(text, is_ch=False):
     t = (text or "").lower()
-    ch_kws = [("સાદું વ્યાજ", ["સાદું વ્યાજ", "simple interest"]), ("નફો ખોટ", ["નફો", "profit"]), ("ટકાવારી", ["ટકાવારી", "percent"]), ("ગુણોત્તર", ["ગુણોત્તર", "ratio"]), ("સરેરાશ", ["સરેરાશ", "average"]), ("કામ સમય", ["કામ", "work"]), ("ઝડપ અંતર", ["ઝડપ", "speed", "ટ્રેન"]), ("ક્ષેત્રફળ", ["ક્ષેત્રફળ", "area"])]
-    sub_kws = [("ગણિત", ["ગણિત", "math"]), ("રીઝનીંગ", ["રીઝનીંગ", "reasoning"]), ("બંધારણ", ["બંધારણ", "polity"]), ("ઇતિહાસ", ["ઇતિહાસ", "history"]), ("ભૂગોળ", ["ભૂગોળ", "geography"]), ("ગુજરાતી", ["ગુજરાતી", "gujarati"]), ("અંગ્રેજી", ["અંગ્રેજી", "english"]), ("વિજ્ઞાન", ["વિજ્ઞાન", "science"]), ("કોમ્પ્યુટર", ["કોમ્પ્યુટર", "comp"]), ("કાયદો", ["કાયદો", "law"])]
-    for name, kws in (ch_kws if is_ch else sub_kws):
-        if any(k in t for k in kws): return name
+
+    ch_kws = [
+        ("સાદું વ્યાજ", ["સાદું વ્યાજ", "sadu vyaj", "simple interest"]),
+        ("ચક્રવૃદ્ધિ વ્યાજ", ["ચક્રવૃદ્ધિ વ્યાજ", "compound interest"]),
+        ("નફો-ખોટ", ["નફો ખોટ", "નફો અને ખોટ", "nafo khot", "profit"]),
+        ("ટકાવારી", ["ટકાવારી", "takavari", "percent"]),
+        ("ગુણોત્તર-પ્રમાણ", ["ગુણોત્તર", "gunottar", "ratio"]),
+        ("સરેરાશ", ["સરેરાશ", "sarerash", "average"]),
+        ("કામ-સમય", ["કામ સમય", "મહેનતાણું", "kam samay", "work"]),
+        ("નળ-ટાંકી", ["નળ અને ટાંકી", "tanki", "pipe"]),
+        ("ઝડપ-અંતર", ["ઝડપ અને અંતર", "અંતર અને સમય", "speed", "distance"]),
+        ("ટ્રેન", ["ટ્રેન", "train"]),
+        ("હોડી-પ્રવાહ", ["હોડી", "boat"]),
+        ("ભાગીદારી", ["ભાગીદારી", "partnership"]),
+        ("ઉંમર સંબંધિત", ["ઉંમર", "ages", "umar"]),
+        ("ક્ષેત્રફળ-પરિમિતિ", ["ક્ષેત્રફળ", "પરિમિતિ", "area"]),
+        ("સાદુરૂપ", ["સાદુરૂપ", "simplification"])
+    ]
+
+    sub_kws = [
+        ("ગણિત", ["ગણિત", "maths", "math"]),
+        ("રીઝનીંગ", ["રીઝનીંગ", "reasoning"]),
+        ("વિજ્ઞાન", ["વિજ્ઞાન", "science", "સાયન્સ"]),
+        ("બંધારણ", ["બંધારણ", "polity", "constitution"]),
+        ("ગુજરાત ઇતિહાસ", ["ગુજરાતનો ઇતિહાસ", "gujarat history", "gujarat itihas"]),
+        ("ભારત ઇતિહાસ", ["ભારતનો ઇતિહાસ", "indian history", "bharat itihas"]),
+        ("ગુજરાત ભૂગોળ", ["ગુજરાત ભૂગોળ", "gujarat geography"]),
+        ("ભારત ભૂગોળ", ["ભારત ભૂગોળ", "indian geography"]),
+        ("ગુજરાતી વ્યાકરણ", ["ગુજરાતી વ્યાકરણ", "gujarati grammar", "vyakaran"]),
+        ("ગુજરાતી સાહિત્ય", ["સાહિત્ય", "sahitya"]),
+        ("અંગ્રેજી વ્યાકરણ", ["અંગ્રેજી", "english grammar", "english"]),
+        ("કોમ્પ્યુટર", ["કોમ્પ્યુટર", "computer", "comp"]),
+        ("કાયદો", ["કાયદો", "law", "ipc", "crpc"]),
+        ("પંચાયતી રાજ", ["પંચાયતી રાજ", "panchayati raj"]),
+        ("કરંટ અફેર્સ", ["કરંટ અફેર્સ", "current affairs", "current"])
+    ]
+
+    target_list = ch_kws if is_ch else sub_kws
+    for name, kws in target_list:
+        if any(k in t for k in kws):
+            return name
+
     for line in (text or "").split("\n"):
-        c = re.sub(r'(?i)^.*?(topic|chapter)\s*[:\-\—]\s*', '', line).strip()
-        if len(c) > 2 and not any(x in c.lower() for x in ["index", "vid", "http", "batch"]): return c[:20]
-    return "અન્ય"
+        c = line.strip()
+        c = re.sub(r'(?i)^.*?(file\s*title|topic|chapter|ch|sub)\s*[:\-\—\.]*\s*', '', c).strip()
+        c = re.sub(r'^\d+[\.\-\s_:]+', '', c).strip()
+        c = re.sub(r'(\.pdf|\.mkv|\.mp4|\[\d+p\])', '', c, flags=re.IGNORECASE).strip()
+        c = re.sub(r'(?i)\b(part|lec|lecture|\d+|video)\b.*', '', c).strip()
+
+        if len(c) >= 4 and not re.match(r'^[A-Za-z]{1,3}$', c):
+            if not any(x in c.lower() for x in ["vid id", "pdf id", "batch", "http", "saved by", "uploaded by"]):
+                return c[:20]
+
+    return "અન્ય ચેપ્ટર" if is_ch else "અન્ય વિષય"
+
+# વિડિયોનું શોર્ટ નામ (લિંક બનાવવા માટે)
+def get_short_title(text, default_name):
+    if not text: return default_name
+    first_line = text.strip().split("\n")[0]
+    c = re.sub(r'(?i)^.*?(file\s*title|topic|chapter)\s*[:\-\—\.]*\s*', '', first_line).strip()
+    c = re.sub(r'(\.pdf|\.mkv|\.mp4)', '', c, flags=re.IGNORECASE).strip()
+    if len(c) > 25: c = c[:25] + ".."
+    return c if len(c) > 2 else default_name
 
 async def check_interval(u_id, freecheck):
     if freecheck != 1 or await is_user_verified(u_id): return True, None
     now = datetime.now()
     if u_id in interval_set and now < interval_set[u_id]:
-        return False, f"Please wait {(interval_set[u_id] - now).seconds}s before next link."
+        return False, f"રાહ જુઓ: {(interval_set[u_id] - now).seconds}s."
     return True, None
 
 async def initialize_userbot(u_id):
@@ -54,9 +109,9 @@ async def run_fast_summary(message, is_ch=False):
             p = raw.split("/") if "/" in raw else [raw, None]
             target = int("-100" + p[0].replace("-100", "").lstrip("-"))
             if p[1] and p[1].isdigit(): topic_id = int(p[1])
-    if not target: return await message.reply("⚠️ Target ID lakho: `/gen_summary ID` ke `/chapter_summary ID`")
+    if not target: return await message.reply("⚠️ Target ID લખો: `/gen_summary ID` કે `/chapter_summary ID`")
 
-    st = await message.reply("⚡ Scanning fast...")
+    st = await message.reply("⚡ સ્કેનિંગ શરૂ...")
     ub = await initialize_userbot(u_id)
     c = ub if ub else app
     msgs, seen = [], set()
@@ -79,40 +134,44 @@ async def run_fast_summary(message, is_ch=False):
 
     if not msgs:
         if ub: await ub.stop()
-        return await st.edit_text("❌ Koi file mali nathi.")
+        return await st.edit_text("❌ કોઈ ફાઈલ મળી નથી.")
 
     msgs.reverse()
     clean = str(target).replace("-100", "").replace("-", "")
     data = {}
 
-    for m in msgs:
+    for idx, m in enumerate(msgs, 1):
         txt = m.caption or m.text or (m.video.file_name if m.video else "") or (m.document.file_name if m.document else "")
-        tag = get_tag(txt, is_ch)
+        tag = get_clean_name(txt, is_ch)
         is_pdf = bool(m.document and m.document.file_name and m.document.file_name.endswith('.pdf'))
         url = f"https://t.me/c/{clean}/{topic_id}/{m.id}" if topic_id else f"https://t.me/c/{clean}/{m.id}"
-        data.setdefault(tag, []).append((url, is_pdf))
+        
+        # વિડિયોના નામને જ ક્લિકેબલ લિંક બનાવવી
+        short_title = get_short_title(txt, f"Part {idx}" if not is_pdf else f"PDF {idx}")
+        data.setdefault(tag, []).append((short_title, url, is_pdf))
 
     txt_lines = []
     if is_ch:
+        # અતિ કોમ્પેક્ટ ફોર્મેટ: વિડિયોના નામ પર જ લિંક
         for ch, items in data.items():
-            vl, pl = [], []
-            for u, pdf in items:
-                if pdf: pl.append(f"[PDF {len(pl)+1}]({u})")
-                else: vl.append(f"[Part {len(vl)+1}]({u})")
-            b = f"📂 **{ch}**\n"
-            if vl: b += "🎥 " + " | ".join(vl) + "\n"
-            if pl: b += "📄 " + " | ".join(pl) + "\n"
-            txt_lines.append(b + "\n")
+            txt_lines.append(f"📁 **{ch}**\n")
+            links_str = []
+            for name, u, pdf in items:
+                prefix = "📄" if pdf else "🎬"
+                links_str.append(f"{prefix} [{name}]({u})")
+            # એક જ બ્લોકમાં લિંક્સ
+            txt_lines.append(" • " + "\n • ".join(links_str) + "\n\n")
     else:
         for sub, items in data.items():
-            v, p = sum(1 for _, x in items if not x), sum(1 for _, x in items if x)
-            txt_lines.append(f"- [{sub}]({items[0][0]}) 🎥 {v} | 📄 {p}\n\n")
+            v = sum(1 for _, _, x in items if not x)
+            p = sum(1 for _, _, x in items if x)
+            txt_lines.append(f"🔹 [{sub}]({items[0][1]}) 🎥`{v}` 📄`{p}`\n")
 
-    parts, cur = [], ("📚 **Chapter Index**\n\n" if is_ch else "📌 **Topic Summary**\n\n")
+    parts, cur = [], ("📚 **પ્રકરણ ઇન્ડેક્સ**\n\n" if is_ch else "📌 **વિષય સમરી**\n\n")
     for l in txt_lines:
-        if len(cur) + len(l) > 3000: parts.append(cur); cur = l
+        if len(cur) + len(l) > 3500: parts.append(cur); cur = l
         else: cur += l
-    cur += f"━━━━━━━━━━━━━━━━━━━━\n✅ Total Files: `{len(msgs)}`\n**__Powered By ╰‿╯ ҡσℓเ ⚝__**"
+    cur += f"───────────────\n✅ કુલ ફાઈલ: `{len(msgs)}`\n**__╰‿╯ ҡσℓเ ⚝__**"
     parts.append(cur)
 
     sender = ub if ub else app
@@ -127,15 +186,14 @@ async def run_fast_summary(message, is_ch=False):
         await asyncio.sleep(1)
 
     if ub: await ub.stop()
-    await st.edit_text("✅ Summary moklai gai ane PIN thai gai!")
+    await st.edit_text("✅ સમરી મોકલાઈ ગઈ અને PIN થઈ ગઈ!")
 
 @app.on_message(filters.regex(r'https?://(?:www\.)?t\.me/[^\s]+|tg://openmessage\?user_id=\w+&message_id=\d+') & filters.private)
 async def single_link(_, m):
     u_id = m.chat.id
     if await subscribe(_, m) == 1 or u_id in batch_mode or users_loop.get(u_id, False): return
     chk = await chk_user(m, u_id)
-    if chk == 1 and FREEMIUM_LIMIT == 0 and u_id not in OWNER_ID and not await is_user_verified(u_id):
-        return await m.reply("Freemium not available.")
+    if chk == 1 and FREEMIUM_LIMIT == 0 and u_id not in OWNER_ID and not await is_user_verified(u_id): return await m.reply("Freemium not available.")
     can, res = await check_interval(u_id, chk)
     if not can: return await m.reply(res)
 
@@ -167,7 +225,7 @@ async def batch_link(_, m):
     mx = PREMIUM_LIMIT if (free != 1 or u_id in OWNER_ID) else (30 if await is_user_verified(u_id) else FREEMIUM_LIMIT)
 
     for _ in range(3):
-        st = await app.ask(u_id, "🎯 Start Link moklo:")
+        st = await app.ask(u_id, "🎯 Start Link મોકલો:")
         if st.text.strip().split("/")[-1].isdigit():
             cs = int(st.text.strip().split("/")[-1])
             start_url = st.text.strip()
@@ -175,7 +233,7 @@ async def batch_link(_, m):
     else: return await m.reply("Max limit reached.")
 
     for _ in range(3):
-        nm = await app.ask(u_id, f"Ketla messages karva chhe? (Max {mx}):")
+        nm = await app.ask(u_id, f"કેટલા મેસેજ કરવા છે? (Max {mx}):")
         if nm.text.strip().isdigit() and 1 <= int(nm.text.strip()) <= mx:
             cl = int(nm.text.strip())
             break
@@ -212,4 +270,4 @@ async def stop_batch(_, m):
         await m.reply("Stopped successfully.")
     else:
         await m.reply("No active batch.")
-            
+        
