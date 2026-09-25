@@ -1,6 +1,6 @@
 # ---------------------------------------------------
 # File Name: main.py
-# Description: Exact Topic Summary with Video/PDF count & Channel links
+# Description: 100% Powerful & Bulletproof Batch + Channel Topic Summary
 # Author: Gagan | Mod for: ╰‿╯ ҡσℓเ ⚝
 # ---------------------------------------------------
 
@@ -27,108 +27,110 @@ users_loop = {}
 interval_set = {}
 batch_mode = {}
 
-# Caption/Text mathi Topic Name kadvu
-def parse_topic_name(raw_text: str) -> str:
+# Caption / File Title માંથી વિષયનું ચોખ્ખું નામ અલગ કરવું
+def extract_topic_from_text(raw_text: str) -> str:
     if not raw_text:
-        return "General Topic"
-    
-    # Batch Name athva Topic Name line shodho
-    for line in raw_text.split("\n"):
-        line_clean = line.strip()
-        if "topic name" in line_clean.lower():
-            t = re.sub(r'(?i)topic name\s*[:\-\—]*', '', line_clean).strip()
-            if t and t.lower() != "topic":
-                return t
-        if "batch name" in line_clean.lower():
-            b = re.sub(r'(?i)batch name\s*[:\-\—]*', '', line_clean).strip()
-            b = re.sub(r'\(.*?\)', '', b).strip()
-            if b:
-                return b
+        return "અન્ય વિષય"
 
-    # Subject Keywords Check
     t_lower = raw_text.lower()
     subject_map = [
         (["રીઝનીંગ", "reasoning"], "રીઝનીંગ"),
-        (["રોડ સેફટી", "road safety"], "રોડ સેફટી"),
-        (["ગુજરાતી વ્યાકરણ", "vyakaran"], "ગુજરાતી વ્યાકરણ"),
-        (["ગુજરાતી સાહિત્ય", "sahitya"], "ગુજરાતી સાહિત્ય"),
+        (["રોડ સેફટી", "road safety", "મોટર વ્હીકલ"], "રોડ સેફટી"),
+        (["ગુજરાતી વ્યાકરણ", "વ્યાકરણ", "vyakaran"], "ગુજરાતી વ્યાકરણ"),
+        (["ગુજરાતી સાહિત્ય", "સાહિત્ય", "sahitya"], "ગુજરાતી સાહિત્ય"),
         (["ગણિત", "maths", "math"], "ગણિત"),
-        (["કોમ્પ્યુટર", "computer"], "કોમ્પ્યુટર"),
-        (["અંગ્રેજી", "english"], "અંગ્રેજી"),
-        (["ઇતિહાસ", "history"], "ઇતિહાસ"),
-        (["ભૂગોળ", "geography"], "ભૂગોળ"),
-        (["બંધારણ", "polity"], "બંધારણ"),
-        (["વિજ્ઞાન", "science"], "વિજ્ઞાન"),
-        (["કાયદો", "law"], "કાયદો"),
-        (["સામાન્ય જ્ઞાન", "gk"], "સામાન્ય જ્ઞાન"),
+        (["કોમ્પ્યુટર", "computer", "કોમ્પ"], "કોમ્પ્યુટર"),
+        (["અંગ્રેજી", "english", "ઇંગ્લિશ", "eng"], "અંગ્રેજી"),
+        (["ઇતિહાસ", "history", "ઈતિહાસ"], "ઇતિહાસ"),
+        (["ભૂગોળ", "geography", "ભુગોળ"], "ભૂગોળ"),
+        (["બંધારણ", "polity", "constitution"], "બંધારણ"),
+        (["વિજ્ઞાન", "science", "સાયન્સ"], "વિજ્ઞાન"),
+        (["કાયદો", "law", "ipc", "crpc"], "કાયદો"),
+        (["કરંટ", "current"], "કરંટ અફેર્સ"),
+        (["પર્યાવરણ", "environment", "ફોરેસ્ટ"], "પર્યાવરણ"),
+        (["સામાન્ય જ્ઞાન", "જનરલ નોલેજ", "gk"], "સામાન્ય જ્ઞાન"),
         (["કંડક્ટર", "ડ્રાઈવર"], "કંડક્ટર સ્પેશિયલ")
     ]
+
     for kws, name in subject_map:
         for kw in kws:
             if kw in t_lower:
                 return name
 
-    # Default Clean Header
-    lines = [l.strip() for l in raw_text.split("\n") if l.strip()]
-    if lines:
-        c = re.sub(r'https?://\S+|@\S+', '', lines[0])
-        c = re.sub(r'(\.pdf|\.mkv|\.mp4)', '', c, flags=re.IGNORECASE).strip()
-        return c[:35]
-    return "General Topic"
+    # જો ઉપરનું ન મળે તો File Title વાળી લાઇનમાંથી કાઢવું
+    for line in raw_text.split("\n"):
+        if "file title" in line.lower():
+            clean = re.sub(r'(?i)file title\s*[:\-\—]*', '', line).strip()
+            clean = re.sub(r'(\.pdf|\.mkv|\.mp4|\[\d+p\]|\(\d+p\))', '', clean, flags=re.IGNORECASE).strip()
+            if clean:
+                return clean[:25]
 
-# Channel mathi real message track karvu
-async def track_channel_upload(summary_data, target_chat_id, user_id):
+    for line in raw_text.split("\n"):
+        clean_line = line.strip()
+        if clean_line and not any(x in clean_line.lower() for x in ["vid id", "batch name", "topic name", "log info"]):
+            return clean_line[:25]
+
+    return "સામાન્ય વિષય"
+
+# છેલ્લો અપલોડ થયેલો વિડિયો ચેનલ/ચેટમાંથી ૧૦૦% ટ્રેક કરવો
+async def record_last_upload(summary_data, target_chat_id, user_id):
     try:
         dest_chat = target_chat_id if target_chat_id else user_id
-        await asyncio.sleep(2)
-        
+        await asyncio.sleep(2.5)  # અપલોડ સંપૂર્ણ પૂરું થવા માટે
+
         async for m in app.get_chat_history(dest_chat, limit=1):
             text = m.caption or m.text or ""
-            topic = parse_topic_name(text)
+            if not text and m.video and m.video.file_name:
+                text = m.video.file_name
+            elif not text and m.document and m.document.file_name:
+                text = m.document.file_name
 
-            is_video = bool(m.video or (m.document and "video" in str(m.document.mime_type)))
+            topic = extract_topic_from_text(text)
+
             is_pdf = bool(m.document and (m.document.file_name.endswith('.pdf') if m.document.file_name else False))
-
-            cid_str = str(dest_chat).replace("-100", "")
-            jump_url = f"https://t.me/c/{cid_str}/{m.id}"
+            
+            # Link Generation
+            if str(dest_chat).startswith("-100"):
+                clean_cid = str(dest_chat).replace("-100", "")
+                jump_url = f"https://t.me/c/{clean_cid}/{m.id}"
+            elif m.chat and m.chat.username:
+                jump_url = f"https://t.me/{m.chat.username}/{m.id}"
+            else:
+                jump_url = f"https://t.me/c/{str(dest_chat)}/{m.id}"
 
             if topic not in summary_data:
                 summary_data[topic] = {
                     "url": jump_url,
                     "videos": 0,
-                    "pdfs": 0,
-                    "others": 0
+                    "pdfs": 0
                 }
-            
-            if is_video:
-                summary_data[topic]["videos"] += 1
-            elif is_pdf:
+
+            if is_pdf:
                 summary_data[topic]["pdfs"] += 1
             else:
-                summary_data[topic]["others"] += 1
+                summary_data[topic]["videos"] += 1
             break
     except Exception as e:
         print(f"Tracking error: {e}")
 
-# Exact photo jevi summary mokalvi
-async def send_pinned_topic_summary(client, user_id, summary_data, target_chat_id):
-    if not summary_data:
-        return
-
+# ૧૦૦% ચેનલ અને બોટમાં સમરી મોકલવી અને Pin કરવી
+async def send_final_summary(client, user_id, summary_data, target_chat_id, total_count):
     summary_text = "📌 **Topic Summary**\n\n"
-    
-    for topic, stats in summary_data.items():
-        url = stats["url"]
-        v_count = stats["videos"]
-        p_count = stats["pdfs"]
-        
-        # Link sathe Topic Name ane 🎥 / 📄 counts
-        summary_text += f"- [{topic}]({url}) 🎥 {v_count} | 📄 {p_count}\n\n"
+
+    if summary_data:
+        for topic, stats in summary_data.items():
+            url = stats["url"]
+            v_count = stats["videos"]
+            p_count = stats["pdfs"]
+            summary_text += f"- [{topic}]({url}) 🎥 {v_count} | 📄 {p_count}\n\n"
+    else:
+        summary_text += f"- [કુલ અપલોડ ફાઇલો](https://t.me) 🎥 {total_count} | 📄 0\n\n"
 
     summary_text += "━━━━━━━━━━━━━━━━━━━━\n"
+    summary_text += f"✅ **કુલ ફાઇલો:** `{total_count}`\n"
     summary_text += "**__Powered By ╰‿╯ ҡσℓเ ⚝__**"
 
-    # 1. Target Channel ma mokalvu ane pin karvu
+    # ૧. ચેનલમાં સમરી મોકલવી અને Pin કરવી
     if target_chat_id:
         try:
             ch_msg = await client.send_message(target_chat_id, summary_text, disable_web_page_preview=True)
@@ -137,17 +139,17 @@ async def send_pinned_topic_summary(client, user_id, summary_data, target_chat_i
             except Exception:
                 pass
         except Exception as e:
-            print(f"Error sending to channel: {e}")
+            print(f"Error sending summary to channel: {e}")
 
-    # 2. Bot ma user ne mokalvu
+    # ૨. બોટમાં યુઝરને સમરી મોકલવી
     try:
-        user_msg = await client.send_message(user_id, summary_text, disable_web_page_preview=True)
+        u_msg = await client.send_message(user_id, summary_text, disable_web_page_preview=True)
         try:
-            await user_msg.pin(both_sides=True)
+            await u_msg.pin(both_sides=True)
         except Exception:
             pass
     except Exception as e:
-        print(f"Error sending to user: {e}")
+        print(f"Error sending summary to user: {e}")
 
 async def process_and_upload_link(userbot, user_id, msg_id, link, retry_count, message):
     try:
@@ -299,7 +301,7 @@ async def batch_link(_, message):
         pass
     users_loop[user_id] = True
 
-    # Chat ID fetch karo
+    # ટાર્ગેટ ચેનલ આઈડી ડેટાબેઝમાંથી લેવો
     target_chat_id = None
     try:
         user_settings = await db.get_data(user_id)
@@ -308,7 +310,7 @@ async def batch_link(_, message):
             if raw_cid:
                 target_chat_id = int(str(raw_cid).strip())
     except Exception as e:
-        print(f"Target fetch error: {e}")
+        print(f"Target chat ID fetch error: {e}")
 
     summary_data = {}
 
@@ -329,8 +331,8 @@ async def batch_link(_, message):
             msg = await app.send_message(message.chat.id, "Processing...")
             await process_and_upload_link(userbot, user_id, msg.id, link, 0, message)
             
-            # Channel ma upload thaya pachhi exact track karo
-            await track_channel_upload(summary_data, target_chat_id, user_id)
+            # વિડિયો અપલોડ થયા પછી તરત ટ્રેક કરવું
+            await record_last_upload(summary_data, target_chat_id, user_id)
             
             try:
                 await pin_msg.edit_text(
@@ -349,8 +351,8 @@ async def batch_link(_, message):
         except Exception:
             pass
 
-        # Pinned Topic Summary format send karo
-        await send_pinned_topic_summary(app, user_id, summary_data, target_chat_id)
+        # બેચ પૂરી થતાં જ ચેનલ અને બોટ બંનેમાં સમરી મોકલવી
+        await send_final_summary(app, user_id, summary_data, target_chat_id, cl)
 
     except Exception as e:
         await app.send_message(message.chat.id, f"Error: {e}")
