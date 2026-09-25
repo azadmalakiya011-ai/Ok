@@ -1,6 +1,6 @@
 # ---------------------------------------------------
 # File Name: main.py
-# Description: Auto Channel/Topic Scanner & Multi-Part Topic Summary
+# Description: Auto Channel & Superfast Group Topic Scanner with Multi-Part Summary
 # Author: Gagan | Custom Mod for: ╰‿╯ ҡσℓเ ⚝
 # ---------------------------------------------------
 
@@ -32,7 +32,7 @@ def extract_topic_from_text(raw_text: str) -> str:
     if not raw_text:
         return "અન્ય વિષય"
 
-    # 1. Caption માંથી 'Topic Name :' અથવા 'Topic :' વાળી લાઈન શોધવી
+    # 1. Caption mathi 'Topic Name :' athva 'Topic :' vali line sodhvi
     topic_line_text = ""
     for line in raw_text.split("\n"):
         line_clean = line.strip()
@@ -42,7 +42,7 @@ def extract_topic_from_text(raw_text: str) -> str:
 
     text_to_search = f"{topic_line_text} {raw_text}".lower()
 
-    # 2. મુખ્ય વિષયોનું લિસ્ટ
+    # 2. Mukhya vishayo nu list
     subject_map = [
         (["કોમ્પ્યુટર", "computer", "કોમ્પ", "comp"], "કોમ્પ્યુટર"),
         (["ગણિત", "maths", "math", "mathematics"], "ગણિત"),
@@ -83,14 +83,14 @@ def extract_topic_from_text(raw_text: str) -> str:
             if kw in text_to_search:
                 return name
 
-    # 3. જો શિક્ષકનું નામ આવે તો સાફ કરવું
+    # 3. Shikshak nu naam hoy to kadhvu
     if topic_line_text:
         clean_topic = re.sub(r'(?i)\b\w+\s+sir\b\s*[\-\—:]*\s*', '', topic_line_text).strip()
         if clean_topic:
             return clean_topic[:25]
         return topic_line_text[:25]
 
-    # 4. વધારાની માહિતી (Index, IDs વગેરે) અવગણવી
+    # 4. Vadhara ni line ignore karvi
     for line in raw_text.split("\n"):
         clean_line = line.strip()
         if not clean_line:
@@ -297,7 +297,7 @@ async def batch_link(_, message):
                 pass
 
 # ---------------------------------------------------
-# Auto Scanner Command: /gen_summary (Supports Channel & Group Topics)
+# Superfast Auto Scanner: /gen_summary (Supports Topics & Direct Fast Scan)
 # ---------------------------------------------------
 @app.on_message(filters.command("gen_summary"))
 async def generate_channel_summary_auto(client, message):
@@ -359,7 +359,7 @@ async def generate_channel_summary_auto(client, message):
         )
 
     topic_info = f" (Topic: `{topic_id}`)" if topic_id else ""
-    status_msg = await message.reply(f"🔍 ગ્રુપ `{target_chat_id}`{topic_info} માંથી વિડિયો સ્કેન થઈ રહ્યા છે...")
+    status_msg = await message.reply(f"⚡ ગ્રુપ `{target_chat_id}`{topic_info} સ્પીડમાં સ્કેન થઈ રહ્યું છે...")
     userbot = await initialize_userbot(user_id)
     c = userbot if userbot else app
 
@@ -368,15 +368,30 @@ async def generate_channel_summary_auto(client, message):
 
     try:
         all_messages = []
-        async for m in c.get_chat_history(target_chat_id):
-            if topic_id:
-                msg_topic = getattr(m, "message_thread_id", None) or (m.reply_to_message_id if m.reply_to_message else None)
-                if msg_topic != topic_id and m.id != topic_id:
-                    continue
+        
+        # Superfast Topic Fetching: reply_to_message_id direct pass karvu
+        history_kwargs = {"chat_id": target_chat_id, "limit": 2500}
+        if topic_id:
+            history_kwargs["reply_to_message_id"] = topic_id
 
-            if m.video or m.document:
-                all_messages.append(m)
+        try:
+            async for m in c.get_chat_history(**history_kwargs):
+                if m.video or m.document:
+                    all_messages.append(m)
+        except Exception:
+            # Fallback for manual topic matching
+            async for m in c.get_chat_history(target_chat_id, limit=2500):
+                if topic_id:
+                    msg_topic = getattr(m, "message_thread_id", None) or (m.reply_to_message_id if m.reply_to_message else None)
+                    if msg_topic != topic_id and m.id != topic_id:
+                        continue
+                if m.video or m.document:
+                    all_messages.append(m)
 
+        if not all_messages:
+            return await status_msg.edit_text(f"❌ આ ટોપિક/ચેનલમાં કોઈ વિડિયો કે PDF ફાઇલ મળી નથી.")
+
+        await status_msg.edit_text(f"📊 {len(all_messages)} ફાઈલો મળી! સમરી તૈયાર થઈ રહી છે...")
         all_messages.reverse()
 
         for m in all_messages:
@@ -389,6 +404,7 @@ async def generate_channel_summary_auto(client, message):
             topic = extract_topic_from_text(raw_text)
             is_pdf = bool(m.document and (m.document.file_name.endswith('.pdf') if m.document.file_name else False))
             
+            # Topic link vs Normal link
             if topic_id:
                 jump_url = f"https://t.me/c/{clean_dest}/{topic_id}/{m.id}"
             else:
@@ -405,9 +421,6 @@ async def generate_channel_summary_auto(client, message):
                 summary_data[topic]["pdfs"] += 1
             else:
                 summary_data[topic]["videos"] += 1
-
-        if not summary_data:
-            return await status_msg.edit_text(f"❌ આ ટોપિક/ચેનલમાં કોઈ વિડિયો કે ફાઇલ મળી નથી.")
 
         total_files = 0
         topic_lines = []
