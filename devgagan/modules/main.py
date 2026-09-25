@@ -28,7 +28,6 @@ users_loop = {}
 interval_set = {}
 batch_mode = {}
 
-# Caption mathi Vishay ane Chapter alag kadhvanu logic
 def extract_clean_subject_and_chapter(text: str) -> str:
     if not text:
         return "અન્ય ફાઇલો"
@@ -36,7 +35,6 @@ def extract_clean_subject_and_chapter(text: str) -> str:
     lines = text.strip().split("\n")
     target_line = ""
 
-    # 1. File Title mathi chapter/topic pakadvu
     for line in lines:
         if "file title" in line.lower():
             target_line = re.sub(r'(?i)file\s*title\s*[:\-\—]*', '', line).strip()
@@ -48,7 +46,6 @@ def extract_clean_subject_and_chapter(text: str) -> str:
             target_line = re.sub(r'(?i)batch\s*name\s*[:\-\—]*', '', line).strip()
             break
 
-    # 2. Jo tag na male to ID vali line chhodine line levani
     if not target_line:
         for line in lines:
             if not any(x in line.lower() for x in ["pdf id", "vid id", "id :", "id:"]):
@@ -59,11 +56,9 @@ def extract_clean_subject_and_chapter(text: str) -> str:
     if not target_line:
         target_line = lines[0].strip()
 
-    # Clean unwanted symbols ane extensions
     clean = re.sub(r'https?://\S+|www\.\S+|@\S+', '', target_line)
     clean = re.sub(r'(\.pdf|\.mkv|\.mp4|\[\d+p\]|\(\d+p\))', '', clean, flags=re.IGNORECASE)
 
-    # Delimiters thi separate thaye to vishay + chapter sachu male
     delimiters = ['|', '—', '•']
     for d in delimiters:
         if d in clean:
@@ -78,7 +73,6 @@ def extract_clean_subject_and_chapter(text: str) -> str:
 
     return clean[:40].strip() if clean else "સામાન્ય વિષય"
 
-# Upload thaya pachhi channel no latest message ane topic track karvo
 async def classify_and_record_link(userbot, link, user_id, summary_tracker, target_chat_id):
     try:
         chat, msg_id = None, None
@@ -128,7 +122,6 @@ async def classify_and_record_link(userbot, link, user_id, summary_tracker, targ
     except Exception:
         pass
 
-# Summary message with branding
 async def send_clickable_summary(client, user_id, summary_tracker, total_count, target_chat_id):
     if not summary_tracker:
         await client.send_message(
@@ -347,7 +340,6 @@ async def batch_link(_, message):
         normal_links_handled = False
         userbot = await initialize_userbot(user_id)
 
-        # Normal Links
         for i in range(cs, cs + cl):
             if user_id in users_loop and users_loop[user_id]:
                 url = f"{'/'.join(start_id.split('/')[:-1])}/{i}"
@@ -378,7 +370,44 @@ async def batch_link(_, message):
                 )
             except Exception:
                 pass
-            await app.send_message(message.chat.id, "😘 𝗖ꪮ𝗺𝗽𝗹𝗲𝘁𝗲 𝗛ꪮ 𝗚𝗮𝘆𝗮 𝗕ꪮ$$ 😎")             await send_clickable_summary(app, user_id, summary_tracker, cl, target_chat_id)             return                      # Special Links (t.me/c/ vagere)         for i in range(cs, cs + cl):             if not userbot:                 await app.send_message(message.chat.id, "Login in bot first ...")                 users_loop[user_id] = False                 return             if user_id in users_loop and users_loop[user_id]:                 url = f"{'/'.join(start_id.split('/')[:-1])}/{i}"                 link = get_link(url)                 if any(x in link for x in ['t.me/b/', 't.me/c/']):                     msg = await app.send_message(message.chat.id, f"Processing...")                     await process_and_upload_link(userbot, user_id, msg.id, link, 0, message)                     await classify_and_record_link(userbot, link, user_id, summary_tracker, target_chat_id)                     try:                         await pin_msg.edit_text(                             f"Batch process started ⚡\nProcessing: {i - cs + 1}/{cl}\n\n**__Powered By ╰‿╯ ҡσℓเ ⚝__**",                             reply_markup=keyboard                         )                     except MessageNotModified:                         pass                     except FloodWait as fw:                         await asyncio.sleep(fw.value)                     except Exception:                         pass          await set_interval(user_id, interval_minutes=300)         try:             await pin_msg.edit_text(                 f"Batch completed successfully for {cl} messages 🎉\n\n**__Powered By ╰‿╯ ҡσℓเ ⚝__**",                 reply_markup=keyboard             )         except Exception:             pass          await app.send_message(message.chat.id, "😘 𝗖ꪮ𝗺𝗽𝗹𝗲𝘁𝗲 𝗛ꪮ 𝗚𝗮𝘆𝗮 𝗕ꪮ$$ 😎")
+            await app.send_message(message.chat.id, "😘 Complete Ho Gaya Boss 😎")
+            await send_clickable_summary(app, user_id, summary_tracker, cl, target_chat_id)
+            return
+            
+        for i in range(cs, cs + cl):
+            if not userbot:
+                await app.send_message(message.chat.id, "Login in bot first ...")
+                users_loop[user_id] = False
+                return
+            if user_id in users_loop and users_loop[user_id]:
+                url = f"{'/'.join(start_id.split('/')[:-1])}/{i}"
+                link = get_link(url)
+                if any(x in link for x in ['t.me/b/', 't.me/c/']):
+                    msg = await app.send_message(message.chat.id, f"Processing...")
+                    await process_and_upload_link(userbot, user_id, msg.id, link, 0, message)
+                    await classify_and_record_link(userbot, link, user_id, summary_tracker, target_chat_id)
+                    try:
+                        await pin_msg.edit_text(
+                            f"Batch process started ⚡\nProcessing: {i - cs + 1}/{cl}\n\n**__Powered By ╰‿╯ ҡσℓเ ⚝__**",
+                            reply_markup=keyboard
+                        )
+                    except MessageNotModified:
+                        pass
+                    except FloodWait as fw:
+                        await asyncio.sleep(fw.value)
+                    except Exception:
+                        pass
+
+        await set_interval(user_id, interval_minutes=300)
+        try:
+            await pin_msg.edit_text(
+                f"Batch completed successfully for {cl} messages 🎉\n\n**__Powered By ╰‿╯ ҡσℓเ ⚝__**",
+                reply_markup=keyboard
+            )
+        except Exception:
+            pass
+
+        await app.send_message(message.chat.id, "😘 Complete Ho Gaya Boss 😎")
         await send_clickable_summary(app, user_id, summary_tracker, cl, target_chat_id)
 
     except Exception as e:
@@ -407,7 +436,6 @@ async def stop_batch(_, message):
             "No active batch processing is running to cancel."
         )
 
-# --- 5 Hours Redeem Commands ---
 @app.on_message(filters.command("gen_code") & filters.private)
 async def generate_code_handler(client, message):
     user_id = message.chat.id
@@ -468,4 +496,4 @@ async def redeem_code_handler(client, message):
         await message.reply(res_msg)
     except Exception as e:
         await message.reply(f"❌ એરર આવી: `{e}`")
-                                      
+        
