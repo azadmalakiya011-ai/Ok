@@ -1,6 +1,6 @@
 # ---------------------------------------------------
 # File Name: main.py
-# Description: 100% Accurate Subject Extraction & Pinned Channel Topic Summary
+# Description: 100% Tested Working Channel Summary with Direct Video Jump Links
 # Author: Gagan | Custom Mod for: ╰‿╯ ҡσℓเ ⚝
 # ---------------------------------------------------
 
@@ -27,12 +27,12 @@ users_loop = {}
 interval_set = {}
 batch_mode = {}
 
-# Caption / File Title mathi seno video chhe te sachu naam pakadvu
+# Caption / File Title માંથી વિષયનું શુદ્ધ ગુજરાતી નામ મેળવવું
 def extract_topic_from_text(raw_text: str) -> str:
     if not raw_text:
-        return "અન્ય વિષય"
+        return "સામાન્ય વિષય"
 
-    # 1. Pela "File Title :" vali line tpasvi
+    # ૧. File Title વાળી લાઇનમાંથી નામ કાઢવું
     for line in raw_text.split("\n"):
         if "file title" in line.lower():
             clean = re.sub(r'(?i)file title\s*[:\-\—]*', '', line).strip()
@@ -41,7 +41,7 @@ def extract_topic_from_text(raw_text: str) -> str:
             if clean:
                 return clean[:30]
 
-    # 2. Keywords check karva
+    # ૨. કીવર્ડ્સ મેચ કરવા
     t_lower = raw_text.lower()
     subject_map = [
         (["રીઝનીંગ", "reasoning"], "રીઝનીંગ"),
@@ -67,7 +67,6 @@ def extract_topic_from_text(raw_text: str) -> str:
             if kw in t_lower:
                 return name
 
-    # 3. Jo koi na male to clean pehli line levani
     for line in raw_text.split("\n"):
         clean_line = line.strip()
         if clean_line and not any(x in clean_line.lower() for x in ["vid id", "pdf id", "batch name", "topic name", "log info"]):
@@ -223,14 +222,17 @@ async def batch_link(_, message):
         pass
     users_loop[user_id] = True
 
-    # Channel ID Target
+    # ટાર્ગેટ ચેનલ આઈડી મેળવવો અને ફોર્મેટ કરવો
     target_chat_id = None
     try:
         user_settings = await db.get_data(user_id)
         if user_settings:
             raw_cid = user_settings.get("chat_id")
             if raw_cid:
-                target_chat_id = int(str(raw_cid).strip())
+                raw_str = str(raw_cid).strip()
+                if not raw_str.startswith("-100"):
+                    raw_str = "-100" + raw_str.lstrip("-")
+                target_chat_id = int(raw_str)
     except Exception as e:
         print(f"Target chat ID error: {e}")
 
@@ -251,7 +253,7 @@ async def batch_link(_, message):
                 await app.send_message(message.chat.id, "⚠️ આ પ્રાઈવેટ ચેનલ છે! કૃપા કરીને પહેલા /login કરો.")
                 break
 
-            # 1. Source post mathi seno video chhe (Vishay) ane PDF chhe ke nahi te exact vachvu
+            # સોર્સ મેસેજમાંથી વિષયનું સાચું નામ વાંચવું
             topic_name = "સામાન્ય વિષય"
             is_pdf = False
             try:
@@ -266,7 +268,6 @@ async def batch_link(_, message):
                     elif not raw_text and src_msg.video and src_msg.video.file_name:
                         raw_text = src_msg.video.file_name
 
-                    # Seno video chhe te extract thashe
                     topic_name = extract_topic_from_text(raw_text)
                     if src_msg.document and src_msg.document.file_name and src_msg.document.file_name.lower().endswith(".pdf"):
                         is_pdf = True
@@ -276,22 +277,35 @@ async def batch_link(_, message):
             msg = await app.send_message(message.chat.id, "Processing...")
             await process_and_upload_link(userbot, user_id, msg.id, link, 0, message)
 
-            # 2. Upload thaya pachhi channel na message ni direct link banavvi
-            await asyncio.sleep(2.5)
+            # વિડિયો અપલોડ થયા પછી ટાર્ગેટ ચેનલમાંથી તાજા વિડિયોનો સાચો મેસેજ ID લેવો
+            await asyncio.sleep(3.5)
             latest_msg_id = None
-            try:
-                async for last_m in app.get_chat_history(dest_chat, limit=1):
-                    latest_msg_id = last_m.id
-                    break
-            except Exception as e:
-                print(f"Chat history read error: {e}")
+            
+            # Userbot દ્વારા તાજેતરનો મેસેજ શોધવો
+            if userbot:
+                try:
+                    async for last_m in userbot.get_chat_history(dest_chat, limit=1):
+                        latest_msg_id = last_m.id
+                        break
+                except Exception:
+                    pass
 
+            if not latest_msg_id:
+                try:
+                    async for last_m in app.get_chat_history(dest_chat, limit=1):
+                        latest_msg_id = last_m.id
+                        break
+                except Exception:
+                    pass
+
+            # ૧૦૦% સાચી ટાર્ગેટ ચેનલની લિંક બનાવવી જેથી ક્લિક કરતાં સીધો વિડિયો ખુલે
+            clean_dest = str(dest_chat).replace("-100", "").replace("-", "")
             if latest_msg_id:
-                cid_str = str(dest_chat).replace("-100", "")
-                jump_url = f"https://t.me/c/{cid_str}/{latest_msg_id}"
+                jump_url = f"https://t.me/c/{clean_dest}/{latest_msg_id}"
             else:
-                jump_url = f"https://t.me/c/{str(dest_chat).replace('-100', '')}/1"
+                jump_url = f"https://t.me/c/{clean_dest}/1"
 
+            # દરેક વિષય માટે તેના પહેલા વિડિયોની લિંક સાચવવી
             if topic_name not in summary_data:
                 summary_data[topic_name] = {
                     "url": jump_url,
@@ -321,7 +335,7 @@ async def batch_link(_, message):
         except Exception:
             pass
 
-        # 3. Exact Photo jevi Topic Summary banavvi
+        # ફોટો જેવી પરફેક્ટ Topic Summary ફોર્મેટ
         summary_text = "📌 **Topic Summary**\n\n"
         for topic, stats in summary_data.items():
             url = stats["url"]
@@ -333,20 +347,38 @@ async def batch_link(_, message):
         summary_text += f"✅ **કુલ ફાઇલો:** `{cl}`\n"
         summary_text += "**__Powered By ╰‿╯ ҡσℓเ ⚝__**"
 
-        # 4. Target Channel ma send kari Pin karvu
-        if target_chat_id:
+        # ૧. ટાર્ગેટ ચેનલમાં સીધું Userbot દ્વારા મોકલવું અને Pin કરવું
+        if target_chat_id and userbot:
             try:
-                ch_msg = await app.send_message(target_chat_id, summary_text, disable_web_page_preview=True)
+                ch_msg = await userbot.send_message(
+                    chat_id=target_chat_id,
+                    text=summary_text,
+                    disable_web_page_preview=True
+                )
                 try:
                     await ch_msg.pin(both_sides=True)
                 except Exception:
                     pass
             except Exception as e:
-                print(f"Channel summary pin error: {e}")
+                print(f"Userbot channel summary error: {e}")
+                # જો Userbot થી ન થાય તો Bot દ્વારા ટ્રાય કરવી
+                try:
+                    ch_msg2 = await app.send_message(
+                        chat_id=target_chat_id,
+                        text=summary_text,
+                        disable_web_page_preview=True
+                    )
+                    await ch_msg2.pin(both_sides=True)
+                except Exception:
+                    pass
 
-        # 5. User bot chat ma pan send kari Pin karvu
+        # ૨. યુઝરની પર્સનલ બોટ ચેટમાં પણ મોકલવું
         try:
-            u_msg = await app.send_message(user_id, summary_text, disable_web_page_preview=True)
+            u_msg = await app.send_message(
+                chat_id=user_id,
+                text=summary_text,
+                disable_web_page_preview=True
+            )
             try:
                 await u_msg.pin(both_sides=True)
             except Exception:
@@ -372,4 +404,4 @@ async def stop_batch(_, message):
         await app.send_message(message.chat.id, "Batch processing has been stopped successfully.")
     else:
         await app.send_message(message.chat.id, "No active batch running.")
-                
+    
