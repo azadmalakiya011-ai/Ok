@@ -274,7 +274,7 @@ async def generate_channel_summary_auto(client, message):
     user_id = message.chat.id
     target_chat_id = None
 
-    # 1. Jo command sathe custom ID aapyu hoy to
+    # 1. Jo command sathe direct ID aapyo hoy: /gen_summary -100xxxxxxxx
     args = message.text.split()
     if len(args) > 1:
         raw_arg = args[1].strip()
@@ -285,7 +285,7 @@ async def generate_channel_summary_auto(client, message):
         except Exception:
             pass
 
-    # 2. Database mathi alag alag field check karva
+    # 2. Database mathi save kareli latest Chat ID fetch karvi
     if not target_chat_id:
         try:
             user_settings = await db.get_data(user_id)
@@ -294,7 +294,7 @@ async def generate_channel_summary_auto(client, message):
                     user_settings.get("chat_id")
                     or user_settings.get("channel_id")
                     or user_settings.get("dump_id")
-                    or user_settings.get("channel")
+                    or user_settings.get("target_chat")
                 )
                 if raw_cid:
                     raw_str = str(raw_cid).strip()
@@ -304,9 +304,13 @@ async def generate_channel_summary_auto(client, message):
         except Exception as e:
             print(f"Error fetching channel: {e}")
 
-    # 3. Default DEMO Channel ID (-1004376381001) set karvu
+    # Jo haju pan ID na male to alert aapo
     if not target_chat_id:
-        target_chat_id = -1004376381001
+        return await message.reply(
+            "⚠️ Channel ID mali nathi!\n\n"
+            "Krupya `/settings` ma jaine **Set Chat ID** karo,\n"
+            "Athva direct aam lakho:\n`/gen_summary -100XXXXXXXXXX`"
+        )
 
     status_msg = await message.reply(f"🔍 Channel `{target_chat_id}` mathi video scan thai rahya chhe...")
     userbot = await initialize_userbot(user_id)
@@ -316,7 +320,7 @@ async def generate_channel_summary_auto(client, message):
     clean_dest = str(target_chat_id).replace("-100", "").replace("-", "")
 
     try:
-        # Channel na message scan karva
+        # Channel na messages scan karva
         async for m in c.get_chat_history(target_chat_id):
             if not (m.video or m.document):
                 continue
@@ -338,7 +342,6 @@ async def generate_channel_summary_auto(client, message):
                     "pdfs": 0
                 }
 
-            # Oldest video ni link set karva
             summary_data[topic]["url"] = jump_url
 
             if is_pdf:
@@ -347,9 +350,9 @@ async def generate_channel_summary_auto(client, message):
                 summary_data[topic]["videos"] += 1
 
         if not summary_data:
-            return await status_msg.edit_text("❌ Channel ma koi video ke file mali nathi.")
+            return await status_msg.edit_text(f"❌ Channel `{target_chat_id}` ma koi video ke file mali nathi.")
 
-        # Summary format taiyar karvu
+        # Summary text format karvu
         summary_text = "📌 **Topic Summary**\n\n"
         total_files = 0
         for topic, stats in summary_data.items():
@@ -363,7 +366,7 @@ async def generate_channel_summary_auto(client, message):
         summary_text += f"✅ **Total Files:** `{total_files}`\n"
         summary_text += "**__Powered By ╰‿╯ ҡσℓเ ⚝__**"
 
-        # Channel ma summary mokalvi ane pin karvi
+        # Channel ma summary post ane pin karvi
         ch_msg = None
         if userbot:
             try:
@@ -379,7 +382,7 @@ async def generate_channel_summary_auto(client, message):
         except Exception:
             pass
 
-        await status_msg.edit_text("✅ Summary safaltapurvak channel ma moklai gai ane pin thai gai!")
+        await status_msg.edit_text(f"✅ Channel `{target_chat_id}` ma summary moklai gai ane pin thai gai!")
 
     except Exception as e:
         await status_msg.edit_text(f"❌ Error aavi: {e}")
@@ -398,4 +401,4 @@ async def stop_batch(_, message):
         await app.send_message(message.chat.id, "Batch processing has been stopped successfully.")
     else:
         await app.send_message(message.chat.id, "No active batch running.")
-        
+                                          
