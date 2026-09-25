@@ -27,12 +27,12 @@ users_loop = {}
 interval_set = {}
 batch_mode = {}
 
-# Caption / File Title માંથી વિષયનું શુદ્ધ ગુજરાતી નામ મેળવવું
+# Caption / File Title mathi vishay nu shuddh Gujarati naam kadhvu
 def extract_topic_from_text(raw_text: str) -> str:
     if not raw_text:
         return "સામાન્ય વિષય"
 
-    # ૧. File Title વાળી લાઇનમાંથી નામ શોધવું
+    # 1. File Title vali line mathi shodhavu
     for line in raw_text.split("\n"):
         if "file title" in line.lower():
             clean = re.sub(r'(?i)file title\s*[:\-\—]*', '', line).strip()
@@ -41,7 +41,7 @@ def extract_topic_from_text(raw_text: str) -> str:
             if clean:
                 return clean[:30]
 
-    # ૨. કીવર્ડ્સ મેચ કરવા
+    # 2. Keywords match karva
     t_lower = raw_text.lower()
     subject_map = [
         (["રીઝનીંગ", "reasoning"], "રીઝનીંગ"),
@@ -267,30 +267,48 @@ async def batch_link(_, message):
                 pass
 
 # ---------------------------------------------------
-# Auto Scanner Command: /gen_summary (સંખ્યા લખવાની જરૂર નથી)
+# Auto Scanner Command: /gen_summary
 # ---------------------------------------------------
-@app.on_message(filters.command("gen_summary") & filters.private)
+@app.on_message(filters.command("gen_summary"))
 async def generate_channel_summary_auto(client, message):
     user_id = message.chat.id
-
-    # ટાર્ગેટ ચેનલ આઈડી મેળવવો
     target_chat_id = None
-    try:
-        user_settings = await db.get_data(user_id)
-        if user_settings:
-            raw_cid = user_settings.get("chat_id")
-            if raw_cid:
-                raw_str = str(raw_cid).strip()
-                if not raw_str.startswith("-100"):
-                    raw_str = "-100" + raw_str.lstrip("-")
-                target_chat_id = int(raw_str)
-    except Exception as e:
-        print(f"Error fetching channel: {e}")
 
+    # 1. Jo command sathe custom ID aapyu hoy to
+    args = message.text.split()
+    if len(args) > 1:
+        raw_arg = args[1].strip()
+        if not raw_arg.startswith("-100"):
+            raw_arg = "-100" + raw_arg.lstrip("-")
+        try:
+            target_chat_id = int(raw_arg)
+        except Exception:
+            pass
+
+    # 2. Database mathi alag alag field check karva
     if not target_chat_id:
-        return await message.reply("⚠️ તમારી ચેનલનો આઈડી મળ્યો નથી. કૃપા કરીને પહેલા /settings માં જઈને ચેનલ ID સેટ કરો.")
+        try:
+            user_settings = await db.get_data(user_id)
+            if user_settings:
+                raw_cid = (
+                    user_settings.get("chat_id")
+                    or user_settings.get("channel_id")
+                    or user_settings.get("dump_id")
+                    or user_settings.get("channel")
+                )
+                if raw_cid:
+                    raw_str = str(raw_cid).strip()
+                    if not raw_str.startswith("-100"):
+                        raw_str = "-100" + raw_str.lstrip("-")
+                    target_chat_id = int(raw_str)
+        except Exception as e:
+            print(f"Error fetching channel: {e}")
 
-    status_msg = await message.reply("🔍 તમારી ચેનલમાંથી બધા જ વિડિયો આપોઆપ સ્કેન થઈ રહ્યા છે...")
+    # 3. Default DEMO Channel ID (-1004376381001) set karvu
+    if not target_chat_id:
+        target_chat_id = -1004376381001
+
+    status_msg = await message.reply(f"🔍 Channel `{target_chat_id}` mathi video scan thai rahya chhe...")
     userbot = await initialize_userbot(user_id)
     c = userbot if userbot else app
 
@@ -298,7 +316,7 @@ async def generate_channel_summary_auto(client, message):
     clean_dest = str(target_chat_id).replace("-100", "").replace("-", "")
 
     try:
-        # ચેનલના તમામ મેસેજ આપોઆપ સ્કેન કરવા
+        # Channel na message scan karva
         async for m in c.get_chat_history(target_chat_id):
             if not (m.video or m.document):
                 continue
@@ -320,7 +338,7 @@ async def generate_channel_summary_auto(client, message):
                     "pdfs": 0
                 }
 
-            # સૌથી જૂના વિડિયોની લિંક જાળવી રાખવી
+            # Oldest video ni link set karva
             summary_data[topic]["url"] = jump_url
 
             if is_pdf:
@@ -329,9 +347,9 @@ async def generate_channel_summary_auto(client, message):
                 summary_data[topic]["videos"] += 1
 
         if not summary_data:
-            return await status_msg.edit_text("❌ ચેનલમાં કોઈ વિડિયો કે ફાઇલો મળી નથી.")
+            return await status_msg.edit_text("❌ Channel ma koi video ke file mali nathi.")
 
-        # સમરી તૈયાર કરવી
+        # Summary format taiyar karvu
         summary_text = "📌 **Topic Summary**\n\n"
         total_files = 0
         for topic, stats in summary_data.items():
@@ -342,10 +360,10 @@ async def generate_channel_summary_auto(client, message):
             summary_text += f"- [{topic}]({url}) 🎥 {v} | 📄 {p}\n\n"
 
         summary_text += "━━━━━━━━━━━━━━━━━━━━\n"
-        summary_text += f"✅ **કુલ ફાઇલો:** `{total_files}`\n"
+        summary_text += f"✅ **Total Files:** `{total_files}`\n"
         summary_text += "**__Powered By ╰‿╯ ҡσℓเ ⚝__**"
 
-        # તમારી ચેનલમાં મોકલવું અને પિન કરવું
+        # Channel ma summary mokalvi ane pin karvi
         ch_msg = None
         if userbot:
             try:
@@ -361,10 +379,10 @@ async def generate_channel_summary_auto(client, message):
         except Exception:
             pass
 
-        await status_msg.edit_text("✅ સમરી સફળતાપૂર્વક તમારી ચેનલમાં મોકલાઈ ગઈ છે અને પિન પણ થઈ ગઈ છે!")
+        await status_msg.edit_text("✅ Summary safaltapurvak channel ma moklai gai ane pin thai gai!")
 
     except Exception as e:
-        await status_msg.edit_text(f"❌ એરર આવી: {e}")
+        await status_msg.edit_text(f"❌ Error aavi: {e}")
     finally:
         if userbot:
             try:
