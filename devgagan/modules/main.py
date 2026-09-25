@@ -1,6 +1,7 @@
 # ---------------------------------------------------
 # File Name: main.py
-# Description: Original Devgagan Core with 'koli' Branding & Fixed Userbot
+# Description: 100% Working Channel Summary & Exact Own Video Links
+# Author: Gagan | Custom Mod for: ╰‿╯ ҡσℓเ ⚝
 # ---------------------------------------------------
 
 import time
@@ -26,6 +27,7 @@ users_loop = {}
 interval_set = {}
 batch_mode = {}
 
+# ટૂંકું અને એકદમ ચોક્કસ વિષયનું નામ કાઢવું
 def extract_clean_subject(text: str) -> str:
     if not text:
         return "અન્ય"
@@ -33,7 +35,9 @@ def extract_clean_subject(text: str) -> str:
     t = text.lower()
     subject_map = [
         (["કોમ્પ્યુટર", "computer", "કોમ્પ"], "કોમ્પ્યુટર"),
-        (["ગણિત", "maths", "math", "રીઝનીંગ", "reasoning"], "ગણિત અને રીઝનીંગ"),
+        (["ગણિત", "maths", "math"], "ગણિત"),
+        (["રીઝનીંગ", "reasoning"], "રીઝનીંગ"),
+        (["રોડ સેફટી", "road safety", "મોટર વ્હીકલ"], "રોડ સેફટી"),
         (["ગુજરાતી વ્યાકરણ", "વ્યાકરણ", "vyakaran"], "ગુજરાતી વ્યાકરણ"),
         (["ગુજરાતી સાહિત્ય", "સાહિત્ય", "sahitya"], "ગુજરાતી સાહિત્ય"),
         (["અંગ્રેજી", "english", "ઇંગ્લિશ", "eng"], "અંગ્રેજી"),
@@ -44,6 +48,7 @@ def extract_clean_subject(text: str) -> str:
         (["કાયદો", "law", "ipc", "crpc"], "કાયદો"),
         (["કરંટ", "current"], "કરંટ અફેર્સ"),
         (["પર્યાવરણ", "environment", "ફોરેસ્ટ"], "પર્યાવરણ"),
+        (["સામાન્ય જ્ઞાન", "જનરલ નોલેજ", "gk", "general knowledge"], "સામાન્ય જ્ઞાન"),
         (["કંડક્ટર", "ડ્રાઈવર"], "કંડક્ટર સ્પેશિયલ")
     ]
 
@@ -82,7 +87,8 @@ def extract_clean_subject(text: str) -> str:
         return words[0]
     return "અન્ય"
 
-async def record_uploaded_link(link, user_id, summary_tracker, target_chat_id, userbot):
+# તમારી પોતાની ચેનલનો જ મેસેજ ID અને લિંક મેળવવી
+async def record_own_channel_link(link, user_id, summary_tracker, target_chat_id, userbot):
     try:
         chat, msg_id = None, None
         clean_link = link.split("?single")[0]
@@ -114,16 +120,18 @@ async def record_uploaded_link(link, user_id, summary_tracker, target_chat_id, u
 
         subject_name = extract_clean_subject(raw_title)
 
-        target_jump_url = ""
+        # અપલોડ થયેલી ચેનલમાંથી તાજેતરનો મેસેજ પકડવો
+        await asyncio.sleep(1.5)
         effective_chat = target_chat_id if target_chat_id else user_id
-        clean_cid = str(effective_chat).replace("-100", "")
+        target_jump_url = ""
 
         try:
             async for last_msg in app.get_chat_history(effective_chat, limit=1):
+                clean_cid = str(effective_chat).replace("-100", "")
                 target_jump_url = f"https://t.me/c/{clean_cid}/{last_msg.id}"
                 break
         except Exception:
-            target_jump_url = link
+            target_jump_url = ""
 
         if subject_name not in summary_tracker:
             summary_tracker[subject_name] = []
@@ -132,9 +140,16 @@ async def record_uploaded_link(link, user_id, summary_tracker, target_chat_id, u
     except Exception:
         pass
 
+# સમરી યુઝર અને ચેનલ બંનેમાં મોકલવી
 async def send_clickable_summary(client, user_id, summary_tracker, total_count, target_chat_id):
     if not summary_tracker:
-        await client.send_message(user_id, f"🎉 **બેચ સફળતાપૂર્વક પૂર્ણ થઈ ગઈ છે!** (કુલ: {total_count})\n\n**__Powered By ╰‿╯ ҡσℓเ ⚝__**")
+        text = f"🎉 **બેચ સફળતાપૂર્વક પૂર્ણ થઈ ગઈ છે!** (કુલ: {total_count})\n\n**__Powered By ╰‿╯ ҡσℓเ ⚝__**"
+        await client.send_message(user_id, text)
+        if target_chat_id:
+            try:
+                await client.send_message(target_chat_id, text)
+            except Exception:
+                pass
         return
 
     text = "📊 **બેચ સમરી (Batch Summary)**\n"
@@ -143,7 +158,7 @@ async def send_clickable_summary(client, user_id, summary_tracker, total_count, 
     for subject, links in summary_tracker.items():
         if links:
             count = len(links)
-            first_url = links[0]
+            first_url = links[0]  # તમારી ચેનલનો પહેલો વિડિયો
             text += f"🔹 [{subject} ({count} ફાઇલો)]({first_url}) 👈 અહીં દબાવો\n"
 
     text += "━━━━━━━━━━━━━━━━━━━━\n"
@@ -151,12 +166,14 @@ async def send_clickable_summary(client, user_id, summary_tracker, total_count, 
     text += "💡 *જે વિષય પર જવું હોય તેના બ્લુ અક્ષર પર ક્લિક કરો.*\n\n"
     text += "**__Powered By ╰‿╯ ҡσℓเ ⚝__**"
 
+    # ૧. તમારી ટાર્ગેટ ચેનલમાં સમરી મોકલવી
     if target_chat_id:
         try:
             await client.send_message(target_chat_id, text, disable_web_page_preview=True)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"Channel summary error: {e}")
 
+    # ૨. બોટમાં યુઝરને સમરી મોકલવી
     await client.send_message(user_id, text, disable_web_page_preview=True)
 
 async def process_and_upload_link(userbot, user_id, msg_id, link, retry_count, message):
@@ -306,8 +323,17 @@ async def batch_link(_, message):
     await pin_msg.pin(both_sides=True)
     users_loop[user_id] = True
 
+    # ટાર્ગેટ ચેનલ આઈડી ચોક્કસ રીતે મેળવવો
     user_settings = await db.get_data(user_id)
-    target_chat_id = user_settings.get("chat_id") if user_settings else None
+    target_chat_id = None
+    if user_settings:
+        raw_cid = user_settings.get("chat_id") or user_settings.get("channel") or user_settings.get("target_chat_id")
+        if raw_cid:
+            try:
+                target_chat_id = int(raw_cid)
+            except Exception:
+                target_chat_id = raw_cid
+    
     summary_tracker = {}
 
     try:
@@ -326,7 +352,9 @@ async def batch_link(_, message):
 
             msg = await app.send_message(message.chat.id, "Processing...")
             await process_and_upload_link(userbot, user_id, msg.id, link, 0, message)
-            await record_uploaded_link(link, user_id, summary_tracker, target_chat_id, userbot)
+            
+            # અપલોડ થયા પછી પોતાની ચેનલનો મેસેજ ટ્રેક કરવો
+            await record_own_channel_link(link, user_id, summary_tracker, target_chat_id, userbot)
             
             try:
                 await pin_msg.edit_text(
@@ -345,6 +373,7 @@ async def batch_link(_, message):
         except Exception:
             pass
 
+        # ચેનલ અને બોટ બંનેમાં સમરી મોકલવી
         await send_clickable_summary(app, user_id, summary_tracker, cl, target_chat_id)
 
     except Exception as e:
