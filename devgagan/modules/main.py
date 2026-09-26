@@ -496,4 +496,169 @@ async def redeem_code_handler(client, message):
         await message.reply(res_msg)
     except Exception as e:
         await message.reply(f"❌ એરર આવી: `{e}`")
+
+
+
+# ==================== ULTRA PRO GUJARAT EXAM SUMMARY SYSTEM ====================
+
+def detect_real_exam_subject(text: str) -> str:
+    if not text:
+        return "સામાન્ય વિષય"
+
+    t = text.lower()
+
+    # સ્પર્ધાત્મક પરીક્ષાના ૧૦૦% સાચા અને શુદ્ધ નામો
+    exam_catalog = [
+        (["રીઝનીંગ", "reasoning", "તાર્કિક"], "રીઝનીંગ"),
+        (["ગણિત", "maths", "math", "numerical", "સંખ્યાત્મક"], "ગણિત"),
+        (["ગુજરાતી વ્યાકરણ", "vyakaran", "વ્યાકરણ"], "ગુજરાતી વ્યાકરણ"),
+        (["ગુજરાતી સાહિત્ય", "sahitya", "સાહિત્ય"], "ગુજરાતી સાહિત્ય"),
+        (["અંગ્રેજી વ્યાકરણ", "english grammar", "english", "ઇંગ્લિશ", "eng grammar"], "અંગ્રેજી વ્યાકરણ"),
+        (["ગુજરાતી ભાષા", "માતૃભાષા"], "ગુજરાતી ભાષા"),
+        (["બંધારણ", "polity", "constitution", "રાજ્યવ્યવસ્થા"], "ભારતનું બંધારણ"),
+        (["ઇતિહાસ", "history", "ઈતિહાસ", "aitihas"], "ઇતિહાસ"),
+        (["ભૂગોળ", "geography", "ભુગોળ", "bhugol"], "ભૂગોળ"),
+        (["વિજ્ઞાન", "science", "સાયન્સ", "સામાન્ય વિજ્ઞાન", "ટેકનોલોજી"], "સામાન્ય વિજ્ઞાન"),
+        (["અર્થતંત્ર", "અર્થશાસ્ત્ર", "economy", "economics", "banking"], "ભારતીય અર્થતંત્ર"),
+        (["સાંસ્કૃતિક વારસો", "વારસો", "culture", "heritage"], "સાંસ્કૃતિક વારસો"),
+        (["કરંટ અફેર્સ", "current affairs", "કરંટ", "વર્તમાન પ્રવાહો"], "વર્તમાન પ્રવાહો"),
+        (["પર્યાવરણ", "environment", "ફોરેસ્ટ", "વન્યજીવ"], "પર્યાવરણ"),
+        (["કોમ્પ્યુટર", "computer", "કોમ્પ", "ict"], "કોમ્પ્યુટર"),
+        (["પંચાયતી રાજ", "panchayati raj"], "પંચાયતી રાજ"),
+        (["જાહેર વહીવટ", "public administration"], "જાહેર વહીવટ"),
+        (["કાયદો", "law", "ipc", "crpc", "પુરાવા", "evidence"], "કાયદો"),
+        (["કંડક્ટર", "ડ્રાઈવર", "મોટર વ્હીકલ", "રોડ સેફટી", "road safety", "first aid"], "કંડક્ટર અને રોડ સેફટી"),
+        (["મનોવિજ્ઞાન", "psychology", "બાળ વિકાસ", "pedagogy", "tet", "tat"], "શિક્ષણ અને મનોવિજ્ઞાન"),
+        (["સામાન્ય જ્ઞાન", "જનરલ નોલેજ", "gk", "general knowledge"], "સામાન્ય જ્ઞાન")
+    ]
+
+    for keywords, official_name in exam_catalog:
+        for kw in keywords:
+            if kw in t:
+                return official_name
+
+    # જો ઉપરનામાંથી ન મળે તો માત્ર ચોખ્ખો વિષય જ લેવો (ફાઇલનું નામ કે એક્સટેન્શન નહીં)
+    for line in text.split("\n"):
+        clean_line = line.strip()
+        if "topic name" in clean_line.lower():
+            clean = re.sub(r'(?i)topic name\s*[:\-\—]*', '', clean_line).strip()
+            if clean and clean.lower() != "topic":
+                return clean[:25]
+        if "topic:" in clean_line.lower() or "વિષય:" in clean_line.lower():
+            clean = re.sub(r'(?i)(topic|વિષય)\s*[:\-\—]*', '', clean_line).strip()
+            if clean:
+                return clean[:25]
+
+    return "અન્ય વિષય"
+
+@app.on_message(filters.command("gen_summary") & filters.private)
+async def generate_channel_summary_cmd(client, message: Message):
+    user_id = message.chat.id
+    target_chat_id = None
+
+    if len(message.command) > 1:
+        raw_cid = message.command[1].strip()
+        try:
+            target_chat_id = int(raw_cid)
+        except ValueError:
+            target_chat_id = raw_cid
+    else:
+        user_settings = await db.get_data(user_id)
+        if user_settings and user_settings.get("chat_id"):
+            try:
+                target_chat_id = int(str(user_settings.get("chat_id")).strip())
+            except Exception:
+                target_chat_id = user_settings.get("chat_id")
+
+    if not target_chat_id:
+        return await message.reply("⚠️ ચેનલ ID મળ્યો નથી!\nવાપરો: `/gen_summary -100xxxxxxxxxx` અથવા `/settings` માં ચેનલ સેટ કરો.")
+
+    status_msg = await message.reply("⚡ **સમરી બની રહી છે...** કૃપા કરીને થોડીવાર રાહ જુઓ.")
+
+    summary_dict = {}
+    total_files = 0
+
+    try:
+        clean_cid = str(target_chat_id).replace("-100", "")
+
+        # ચેનલના છેલ્લા 1000 મેસેજ સ્કેન કરવા
+        collected_messages = []
+        async for msg in client.get_chat_history(target_chat_id, limit=1000):
+            if msg.video or msg.document:
+                collected_messages.append(msg)
+
+        if not collected_messages:
+            return await status_msg.edit_text("❌ ચેનલમાં કોઈ વિડિયો કે PDF મળ્યા નથી.")
+
+        # સૌથી જૂના (પહેલા અપલોડ થયેલા) મેસેજથી ગણતરી કરવી
+        # જેથી લિંક હંમેશા પેલા (Lec-1) વિડિયોની જ બને!
+        collected_messages.reverse()
+
+        for msg in collected_messages:
+            total_files += 1
+            raw_text = msg.caption or msg.text or ""
+            if not raw_text:
+                if msg.video and msg.video.file_name:
+                    raw_text = msg.video.file_name
+                elif msg.document and msg.document.file_name:
+                    raw_text = msg.document.file_name
+
+            subject_name = detect_real_exam_subject(raw_text)
+
+            is_pdf = bool(msg.document and (msg.document.file_name.lower().endswith('.pdf') if msg.document.file_name else False))
+            is_video = bool(msg.video or (msg.document and "video" in str(msg.document.mime_type)))
+
+            # ગ્રૂપ ફોરમ ટોપિક કે ચેનલ લિંક
+            if msg.topic_manually_assigned or (hasattr(msg, 'message_thread_id') and msg.message_thread_id):
+                thread_id = msg.message_thread_id
+                jump_url = f"https://t.me/c/{clean_cid}/{thread_id}/{msg.id}"
+            else:
+                jump_url = f"https://t.me/c/{clean_cid}/{msg.id}"
+
+            # જો વિષય પહેલી વાર આવ્યો હોય તો જ તેની લિંક સેવ થશે (એટલે કે પહેલો વિડિયો)
+            if subject_name not in summary_dict:
+                summary_dict[subject_name] = {
+                    "first_url": jump_url,
+                    "videos": 0,
+                    "pdfs": 0
+                }
+
+            if is_video:
+                summary_dict[subject_name]["videos"] += 1
+            elif is_pdf:
+                summary_dict[subject_name]["pdfs"] += 1
+
+        # ક્લીન અને કોમ્પેક્ટ ફોર્મેટ (જૂનું કશું જ નહીં આવે)
+        summary_text = "📌 **Topic Summary**\n"
+        summary_text += "━━━━━━━━━━━━━━━━━━━━\n\n"
+
+        for subject, stats in summary_dict.items():
+            first_url = stats["first_url"]
+            v = stats["videos"]
+            p = stats["pdfs"]
+            # નામ પર દબાવતાં જ તે વિષયના પહેલા વિડિયો પર પહોંચી જશે
+            summary_text += f"- [{subject}]({first_url}) 🎥 {v} | 📄 {p}\n\n"
+
+        summary_text += "━━━━━━━━━━━━━━━━━━━━\n"
+        summary_text += f"✅ **કુલ અપલોડ થયેલ ફાઇલો:** `{total_files}`\n"
+        summary_text += "💡 *જે વિષય પર જવું હોય તેના બ્લુ નામ પર ક્લિક કરો.*\n\n"
+        summary_text += "**__Powered By ╰‿╯ ҡσℓเ ⚝__**"
+
+        # ૧. ચેનલમાં મોકલવું અને Pin કરવું
+        try:
+            ch_post = await client.send_message(target_chat_id, summary_text, disable_web_page_preview=True)
+            try:
+                await ch_post.pin(both_sides=True)
+            except Exception:
+                pass
+        except Exception as e:
+            print(f"Error posting in target channel: {e}")
+
+        # ૨. પર્સનલ બોટમાં મોકલવું
+        await client.send_message(user_id, summary_text, disable_web_page_preview=True)
+        await status_msg.delete()
+
+    except Exception as e:
+        await status_msg.edit_text(f"❌ એરર આવી: {e}\nખાતરી કરો કે બોટ ચેનલમાં એડમિન છે.")
+                           
         
