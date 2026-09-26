@@ -499,7 +499,7 @@ async def redeem_code_handler(client, message):
 
 
 
-# ==================== ULTRA PRO GUJARAT EXAM SUMMARY SYSTEM ====================
+# ==================== HYBRID PRO GUJARAT EXAM SUMMARY SYSTEM (LEKHIT PAPERS ADDED) ====================
 
 def detect_real_exam_subject(text: str) -> str:
     if not text:
@@ -507,8 +507,17 @@ def detect_real_exam_subject(text: str) -> str:
 
     t = text.lower()
 
-    # સ્પર્ધાત્મક પરીક્ષાના ૧૦૦% સાચા અને શુદ્ધ નામો
     exam_catalog = [
+        # --- લેખિત પરીક્ષાના ખાસ વિષયો (Mains / Descriptive Papers) ---
+        (["નિબંધ", "essay", "nibandh", "નિબંધ લેખન"], "નિબંધ લેખન (Essay)"),
+        (["ગુજરાતી વર્ણનાત્મક", "ગુજરાતી લેખિત", "gujarati descriptive", "પત્ર લેખન", "ચર્ચા પત્ર", "અહેવાલ", "સંક્ષેપીકરણ"], "ગુજરાતી લેખિત (Mains)"),
+        (["અંગ્રેજી લેખિત", "english descriptive", "letter writing", "report writing", "press release", "comprehension"], "અંગ્રેજી લેખિત (Mains)"),
+        (["ભાષાંતર", "translation", "ટ્રાન્સલેશન"], "ભાષાંતર (Translation)"),
+        (["સામાન્ય અભ્યાસ ૧", "સામાન્ય અભ્યાસ-૧", "gs 1", "gs-1", "gs1", "general studies 1"], "સામાન્ય અભ્યાસ-૧ (GS-1)"),
+        (["સામાન્ય અભ્યાસ ૨", "સામાન્ય અભ્યાસ-૨", "gs 2", "gs-2", "gs2", "general studies 2"], "સામાન્ય અભ્યાસ-૨ (GS-2)"),
+        (["સામાન્ય અભ્યાસ ૩", "સામાન્ય અભ્યાસ-૩", "gs 3", "gs-3", "gs3", "general studies 3"], "સામાન્ય અભ્યાસ-૩ (GS-3)"),
+
+        # --- પ્રિલિમ્સ અને અન્ય વિષયો ---
         (["રીઝનીંગ", "reasoning", "તાર્કિક"], "રીઝનીંગ"),
         (["ગણિત", "maths", "math", "numerical", "સંખ્યાત્મક"], "ગણિત"),
         (["ગુજરાતી વ્યાકરણ", "vyakaran", "વ્યાકરણ"], "ગુજરાતી વ્યાકરણ"),
@@ -537,15 +546,15 @@ def detect_real_exam_subject(text: str) -> str:
             if kw in t:
                 return official_name
 
-    # જો ઉપરનામાંથી ન મળે તો માત્ર ચોખ્ખો વિષય જ લેવો (ફાઇલનું નામ કે એક્સટેન્શન નહીં)
     for line in text.split("\n"):
         clean_line = line.strip()
         if "topic name" in clean_line.lower():
             clean = re.sub(r'(?i)topic name\s*[:\-\—]*', '', clean_line).strip()
             if clean and clean.lower() != "topic":
                 return clean[:25]
-        if "topic:" in clean_line.lower() or "વિષય:" in clean_line.lower():
-            clean = re.sub(r'(?i)(topic|વિષય)\s*[:\-\—]*', '', clean_line).strip()
+        if "file title" in clean_line.lower():
+            clean = re.sub(r'(?i)file title\s*[:\-\—]*', '', clean_line).strip()
+            clean = re.sub(r'(\.pdf|\.mkv|\.mp4|\[\d+p\]|\(\d+p\))', '', clean, flags=re.IGNORECASE).strip()
             if clean:
                 return clean[:25]
 
@@ -555,13 +564,22 @@ def detect_real_exam_subject(text: str) -> str:
 async def generate_channel_summary_cmd(client, message: Message):
     user_id = message.chat.id
     target_chat_id = None
+    target_thread_id = None
 
     if len(message.command) > 1:
-        raw_cid = message.command[1].strip()
-        try:
-            target_chat_id = int(raw_cid)
-        except ValueError:
-            target_chat_id = raw_cid
+        raw_input = message.command[1].strip()
+        if "/" in raw_input:
+            parts = raw_input.split("/")
+            try:
+                target_chat_id = int(parts[0])
+                target_thread_id = int(parts[1])
+            except ValueError:
+                target_chat_id = parts[0]
+        else:
+            try:
+                target_chat_id = int(raw_input)
+            except ValueError:
+                target_chat_id = raw_input
     else:
         user_settings = await db.get_data(user_id)
         if user_settings and user_settings.get("chat_id"):
@@ -571,27 +589,48 @@ async def generate_channel_summary_cmd(client, message: Message):
                 target_chat_id = user_settings.get("chat_id")
 
     if not target_chat_id:
-        return await message.reply("⚠️ ચેનલ ID મળ્યો નથી!\nવાપરો: `/gen_summary -100xxxxxxxxxx` અથવા `/settings` માં ચેનલ સેટ કરો.")
+        return await message.reply("⚠️ ચેનલ કે ગ્રૂપ ID મળ્યો નથી!\nવાપરો: `/gen_summary -100xxxxxxxxxx` અથવા `/settings` માં સેટ કરો.")
 
-    status_msg = await message.reply("⚡ **સમરી બની રહી છે...** કૃપા કરીને થોડીવાર રાહ જુઓ.")
+    userbot = await initialize_userbot(user_id)
+    scanner_client = userbot if userbot else client
+
+    status_msg = await message.reply(
+        "⚡ **સુપર સ્કેનિંગ ચાલુ છે...**\n" + 
+        ("🔐 પ્રાઈવેટ મોડ (Userbot)" if userbot else "🤖 બોટ મોડ")
+    )
 
     summary_dict = {}
     total_files = 0
 
     try:
         clean_cid = str(target_chat_id).replace("-100", "")
-
-        # ચેનલના છેલ્લા 1000 મેસેજ સ્કેન કરવા
         collected_messages = []
-        async for msg in client.get_chat_history(target_chat_id, limit=1000):
-            if msg.video or msg.document:
-                collected_messages.append(msg)
+        
+        try:
+            async for msg in scanner_client.get_chat_history(target_chat_id, limit=1000):
+                if target_thread_id:
+                    m_thread = getattr(msg, "message_thread_id", None) or getattr(msg, "reply_to_top_message_id", None)
+                    if m_thread != target_thread_id:
+                        continue
+
+                if msg.video or msg.document:
+                    collected_messages.append(msg)
+        except Exception as scan_err:
+            if "BOT_METHOD_INVALID" in str(scan_err) and not userbot:
+                await status_msg.edit_text(
+                    "⚠️ આ પ્રાઈવેટ ચેનલ/ગ્રૂપ છે!\n"
+                    "ટેલિગ્રામ નિયમ મુજબ પ્રાઈવેટ હિસ્ટ્રી સ્કેન કરવા માટે બોટમાં એકવાર `/login` કરવું જરૂરી છે."
+                )
+                return
+            else:
+                raise scan_err
 
         if not collected_messages:
-            return await status_msg.edit_text("❌ ચેનલમાં કોઈ વિડિયો કે PDF મળ્યા નથી.")
+            await status_msg.edit_text("❌ આ ચેનલ/ગ્રૂપ/ટોપિકમાં કોઈ વિડિયો કે PDF મળ્યા નથી.")
+            if userbot:
+                await userbot.stop()
+            return
 
-        # સૌથી જૂના (પહેલા અપલોડ થયેલા) મેસેજથી ગણતરી કરવી
-        # જેથી લિંક હંમેશા પેલા (Lec-1) વિડિયોની જ બને!
         collected_messages.reverse()
 
         for msg in collected_messages:
@@ -608,14 +647,12 @@ async def generate_channel_summary_cmd(client, message: Message):
             is_pdf = bool(msg.document and (msg.document.file_name.lower().endswith('.pdf') if msg.document.file_name else False))
             is_video = bool(msg.video or (msg.document and "video" in str(msg.document.mime_type)))
 
-            # ગ્રૂપ ફોરમ ટોપિક કે ચેનલ લિંક
-            if msg.topic_manually_assigned or (hasattr(msg, 'message_thread_id') and msg.message_thread_id):
-                thread_id = msg.message_thread_id
+            thread_id = getattr(msg, "message_thread_id", None)
+            if thread_id:
                 jump_url = f"https://t.me/c/{clean_cid}/{thread_id}/{msg.id}"
             else:
                 jump_url = f"https://t.me/c/{clean_cid}/{msg.id}"
 
-            # જો વિષય પહેલી વાર આવ્યો હોય તો જ તેની લિંક સેવ થશે (એટલે કે પહેલો વિડિયો)
             if subject_name not in summary_dict:
                 summary_dict[subject_name] = {
                     "first_url": jump_url,
@@ -628,7 +665,6 @@ async def generate_channel_summary_cmd(client, message: Message):
             elif is_pdf:
                 summary_dict[subject_name]["pdfs"] += 1
 
-        # ક્લીન અને કોમ્પેક્ટ ફોર્મેટ (જૂનું કશું જ નહીં આવે)
         summary_text = "📌 **Topic Summary**\n"
         summary_text += "━━━━━━━━━━━━━━━━━━━━\n\n"
 
@@ -636,7 +672,6 @@ async def generate_channel_summary_cmd(client, message: Message):
             first_url = stats["first_url"]
             v = stats["videos"]
             p = stats["pdfs"]
-            # નામ પર દબાવતાં જ તે વિષયના પહેલા વિડિયો પર પહોંચી જશે
             summary_text += f"- [{subject}]({first_url}) 🎥 {v} | 📄 {p}\n\n"
 
         summary_text += "━━━━━━━━━━━━━━━━━━━━\n"
@@ -644,9 +679,12 @@ async def generate_channel_summary_cmd(client, message: Message):
         summary_text += "💡 *જે વિષય પર જવું હોય તેના બ્લુ નામ પર ક્લિક કરો.*\n\n"
         summary_text += "**__Powered By ╰‿╯ ҡσℓเ ⚝__**"
 
-        # ૧. ચેનલમાં મોકલવું અને Pin કરવું
         try:
-            ch_post = await client.send_message(target_chat_id, summary_text, disable_web_page_preview=True)
+            send_kwargs = {"disable_web_page_preview": True}
+            if target_thread_id:
+                send_kwargs["message_thread_id"] = target_thread_id
+
+            ch_post = await client.send_message(target_chat_id, summary_text, **send_kwargs)
             try:
                 await ch_post.pin(both_sides=True)
             except Exception:
@@ -654,11 +692,15 @@ async def generate_channel_summary_cmd(client, message: Message):
         except Exception as e:
             print(f"Error posting in target channel: {e}")
 
-        # ૨. પર્સનલ બોટમાં મોકલવું
         await client.send_message(user_id, summary_text, disable_web_page_preview=True)
         await status_msg.delete()
 
     except Exception as e:
-        await status_msg.edit_text(f"❌ એરર આવી: {e}\nખાતરી કરો કે બોટ ચેનલમાં એડમિન છે.")
-                           
-        
+        await status_msg.edit_text(f"❌ એરર આવી: {e}\nખાતરી કરો કે બોટ તે ચેનલ/ગ્રૂપમાં એડમિન છે.")
+    finally:
+        if userbot:
+            try:
+                await userbot.stop()
+            except Exception:
+                pass
+                
