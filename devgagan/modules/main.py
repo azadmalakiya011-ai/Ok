@@ -985,4 +985,177 @@ async def batch_link(_, message):
             except Exception:
                 pass
 
-# ==================== AUTO TOPIC SCANNER COMMAND (/gen_summary) =========
+# ==================== AUTO TOPIC SCANNER COMMAND (/gen_summary) ====================
+@app.on_message(filters.command("gen_summary") & filters.private)
+async def generate_channel_summary_cmd(client, message: Message):
+    user_id = message.chat.id
+    target_chat_id = None
+    target_thread_id = None
+
+    # Link / Chat ID / Topic ID parsing
+    if len(message.command) > 1:
+        raw_input = message.command[1].strip()
+        if "/" in raw_input:
+            parts = raw_input.split("/")
+            try:
+                target_chat_id = int(parts[0])
+                target_thread_id = int(parts[1])
+            except ValueError:
+                target_chat_id = parts[0]
+        else:
+            try:
+                target_chat_id = int(raw_input)
+            except ValueError:
+                target_chat_id = raw_input
+    else:
+        user_settings = await db.get_data(user_id)
+        if user_settings and user_settings.get("chat_id"):
+            try:
+                target_chat_id = int(str(user_settings.get("chat_id")).strip())
+            except Exception:
+                target_chat_id = user_settings.get("chat_id")
+
+    if not target_chat_id:
+        return await message.reply("⚠️ ચેનલ કે ગ્રૂપ ID મળ્યો નથી!\nવાપરો: `/gen_summary -100xxxxxxxxxx` અથવા `/gen_summary -100xxxxxxxxxx/670`")
+
+    userbot = await initialize_userbot(user_id)
+    scanner_client = userbot if userbot else client
+
+    mode_text = "🔐 પ્રાઈવેટ મોડ (Userbot)" if userbot else "🤖 બોટ મોડ"
+    if target_thread_id:
+        mode_text += f"\n📌 ટોપિક ID: `{target_thread_id}`"
+
+    status_msg = await message.reply(f"⚡ **સુપર સ્કેનિંગ ચાલુ છે...**\n{mode_text}")
+
+    summary_dict = {}
+    total_files = 0
+
+    try:
+        clean_cid = str(target_chat_id).replace("-100", "").replace("-", "")
+        collected_messages = []
+        
+        try:
+            # get_chat_history માં message_thread_id નથી આવતો એટલે chat_id અને limit જ પાસ થશે
+            async for msg in scanner_client.get_chat_history(chat_id=target_chat_id, limit=3000):
+                # Topic group હોય તો target_thread_id મેચ કરવો
+                if target_thread_id:
+                    msg_thread = getattr(msg, "message_thread_id", None)
+                    if not msg_thread and getattr(msg, "reply_to_top_message_id", None):
+                        msg_thread = msg.reply_to_top_message_id
+
+                    if msg_thread != target_thread_id and msg.id != target_thread_id:
+                        continue
+
+                if msg.video or msg.document:
+                    collected_messages.append(msg)
+
+        except Exception as scan_err:
+            if "BOT_METHOD_INVALID" in str(scan_err) and not userbot:
+                await status_msg.edit_text(
+                    "⚠️ આ પ્રાઈવેટ ચેનલ/ગ્રૂપ છે!\n"
+                    "ટેલિગ્રામ નિયમ મુજબ પ્રાઈવેટ હિસ્ટ્રી સ્કેન કરવા માટે બોટમાં એકવાર `/login` કરવું જરૂરી છે."
+                )
+                return
+            else:
+                raise scan_err
+
+        if not collected_messages:
+            await status_msg.edit_text("❌ આ ચેનલ/ગ્રૂપ/ટોપિકમાં કોઈ વિડિયો કે PDF મળ્યા નથી.")
+            if userbot:
+                await userbot.stop()
+            return
+
+        collected_messages.reverse()
+
+        for msg in collected_messages:
+            total_files += 1
+            raw_text = msg.caption or msg.text or ""
+            if not raw_text:
+                if msg.video and msg.video.file_name:
+                    raw_text = msg.video.file_name
+                elif msg.document and msg.document.file_name:
+                    raw_text = msg.document.file_name
+
+            subject_name = detect_real_exam_subject(raw_text)
+
+            is_pdf = bool(msg.document and (msg.document.file_name.lower().endswith('.pdf') if msg.document.file_name else False))
+            is_video = bool(msg.video or (msg.document and "video" in str(msg.document.mime_type)))
+
+            # Jump link generation
+            thread_id = getattr(msg, "message_thread_id", None) or target_thread_id
+            if thread_id:
+                jump_url = f"https://t.me/c/{clean_cid}/{thread_id}/{msg.id}"
+            else:
+                jump_url = f"https://t.me/c/{clean_cid}/{msg.id}"
+
+            if subject_name not in summary_dict:
+                summary_dict[subject_name] = {
+                    "first_url": jump_url,
+                    "videos": 0,
+                    "pdfs": 0
+                }
+
+            if is_video:
+                summary_dict[subject_name]["videos"] += 1
+            elif is_pdf:
+                summary_dict[subject_name]["pdfs"] += 1
+
+        summary_text = "📌 **Topic Summary**\n"
+        summary_text += "━━━━━━━━━━━━━━━━━━━━\n\n"
+
+        for subject, stats in summary_dict.items():
+            first_url = stats["first_url"]
+            v = stats["videos"]
+            p = stats["pdfs"]
+            summary_text += f"- [{subject}]({first_url}) 🎥 {v} | 📄 {p}\n\n"
+
+        summary_text += "━━━━━━━━━━━━━━━━━━━━\n"
+        summary_text += f"✅ **કુલ અપલોડ થયેલ ફાઇલો:** `{total_files}`\n"
+        summary_text += "💡 *જે વિષય પર જવું હોય તેના બ્લુ નામ પર ક્લિક કરો.*\n\n"
+        summary_text += "**__Powered By ╰‿╯ ҡσℓเ ⚝__**"
+
+        # 1. Target chat / Topic માં મોકલીને પિન કરવું
+        try:
+            send_kwargs = {"disable_web_page_preview": True}
+            if target_thread_id:
+                send_kwargs["message_thread_id"] = target_thread_id
+
+            ch_post = await client.send_message(target_chat_id, summary_text, **send_kwargs)
+            try:
+                await ch_post.pin(both_sides=True)
+            except Exception:
+                pass
+        except Exception as e:
+            print(f"Error posting in group/topic via client: {e}")
+            if userbot:
+                try:
+                    ch_post2 = await userbot.send_message(target_chat_id, summary_text, **send_kwargs)
+                    try:
+                        await ch_post2.pin(both_sides=True)
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+
+        # 2. Private chat માં પણ Summary મોકલવી
+        await client.send_message(user_id, summary_text, disable_web_page_preview=True)
+        await status_msg.delete()
+
+    except Exception as e:
+        await status_msg.edit_text(f"❌ એરર આવી: `{e}`")
+    finally:
+        if userbot:
+            try:
+                await userbot.stop()
+            except Exception:
+                pass
+
+@app.on_message(filters.command("cancel"))
+async def stop_batch(_, message):
+    user_id = message.chat.id
+    if user_id in users_loop and users_loop[user_id]:
+        users_loop[user_id] = False
+        await app.send_message(message.chat.id, "Batch processing has been stopped successfully.")
+    else:
+        await app.send_message(message.chat.id, "No active batch running.")
+        
