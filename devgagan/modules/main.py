@@ -985,6 +985,7 @@ async def batch_link(_, message):
             except Exception:
                 pass
 
+
 # ==================== AUTO TOPIC SCANNER COMMAND (/gen_summary) ====================
 @app.on_message(filters.command("gen_summary") & filters.private)
 async def generate_channel_summary_cmd(client, message: Message):
@@ -1009,11 +1010,18 @@ async def generate_channel_summary_cmd(client, message: Message):
                 target_chat_id = raw_input
     else:
         user_settings = await db.get_data(user_id)
-        if user_settings and user_settings.get("chat_id"):
-            try:
-                target_chat_id = int(str(user_settings.get("chat_id")).strip())
-            except Exception:
-                target_chat_id = user_settings.get("chat_id")
+        if user_settings:
+            raw_cid = (
+                user_settings.get("chat_id")
+                or user_settings.get("channel_id")
+                or user_settings.get("dump_id")
+                or user_settings.get("target_chat")
+            )
+            if raw_cid:
+                raw_str = str(raw_cid).strip()
+                if not raw_str.startswith("-100"):
+                    raw_str = "-100" + raw_str.lstrip("-")
+                target_chat_id = int(raw_str)
 
     if not target_chat_id:
         return await message.reply("⚠️ ચેનલ કે ગ્રૂપ ID મળ્યો નથી!\nવાપરો: `/gen_summary -100xxxxxxxxxx` અથવા `/gen_summary -100xxxxxxxxxx/26816`")
@@ -1029,27 +1037,32 @@ async def generate_channel_summary_cmd(client, message: Message):
 
     summary_dict = {}
     total_files = 0
+    clean_cid = str(target_chat_id).replace("-100", "").replace("-", "")
+    collected_messages = []
+    seen_ids = set()
 
     try:
-        clean_cid = str(target_chat_id).replace("-100", "").replace("-", "")
-        collected_messages = []
-        
-        try:
-            # ૧. જો Topic ID આપેલો હોય તો સીધા તે Topic ની અંદરથી જ મેસેજ ફેચ કરવા
-            if target_thread_id:
-                try:
-                    async for msg in scanner_client.get_chat_history(
-                        chat_id=target_chat_id, 
-                        limit=3000, 
-                        reply_to_message_id=target_thread_id
-                    ):
-                        if msg.video or msg.document:
-                            collected_messages.append(msg)
-                except Exception:
-                    pass
+        # ૧. search_messages થી ટોપિક/ચેનલમાંથી સીધા વિડિયો અને ડોક્યુમેન્ટ્સ ફિલ્ટર કરવા
+        for media_filter in [enums.MessagesFilter.VIDEO, enums.MessagesFilter.DOCUMENT]:
+            try:
+                kwargs = {
+                    "chat_id": target_chat_id,
+                    "filter": media_filter,
+                    "limit": 3000
+                }
+                if target_thread_id:
+                    kwargs["message_thread_id"] = target_thread_id
 
-            # ૨. જો ઉપરથી ન મળે તો સામાન્ય ચેટ હિસ્ટ્રીમાંથી ફિલ્ટર કરવું
-            if not collected_messages:
+                async for msg in scanner_client.search_messages(**kwargs):
+                    if msg.id not in seen_ids:
+                        seen_ids.add(msg.id)
+                        collected_messages.append(msg)
+            except Exception as e:
+                print(f"Search filter error: {e}")
+
+        # ૨. જો search_messages થી કંઈ ન મળે તો get_chat_history વાપરવી
+        if not collected_messages:
+            try:
                 async for msg in scanner_client.get_chat_history(chat_id=target_chat_id, limit=3000):
                     if target_thread_id:
                         m_thread = getattr(msg, "message_thread_id", None)
@@ -1062,29 +1075,22 @@ async def generate_channel_summary_cmd(client, message: Message):
                             reply_to == target_thread_id or 
                             msg.id == target_thread_id
                         )
-
                         if not is_in_topic:
                             continue
 
-                    if msg.video or msg.document:
+                    if (msg.video or msg.document) and msg.id not in seen_ids:
+                        seen_ids.add(msg.id)
                         collected_messages.append(msg)
-
-        except Exception as scan_err:
-            if "BOT_METHOD_INVALID" in str(scan_err) and not userbot:
-                await status_msg.edit_text(
-                    "⚠️ આ પ્રાઈવેટ ચેનલ/ગ્રૂપ છે!\n"
-                    "ટેલિગ્રામ નિયમ મુજબ પ્રાઈવેટ હિસ્ટ્રી સ્કેન કરવા માટે બોટમાં એકવાર `/login` કરવું જરૂરી છે."
-                )
-                return
-            else:
-                raise scan_err
+            except Exception as e:
+                print(f"History scan error: {e}")
 
         if not collected_messages:
-            await status_msg.edit_text("❌ આ ચેનલ/ગ્રૂપ/ટોપિકમાં કોઈ વિડિયો કે PDF મળ્યા નથી.")
+            await status_msg.edit_text("❌ આ ચેનલ/ગ્રૂપ/ટોપિકમાં કોઈ વિડિયો કે PDF મળ્યા નથી.\n(ખાતરી કરો કે Userbot તે ગ્રૂપમાં જોડાયેલું છે).")
             if userbot:
                 await userbot.stop()
             return
 
+        # ક્રમ સીધો કરવો (સૌથી પહેલો વિડિયો સૌથી ઉપર)
         collected_messages.reverse()
 
         for msg in collected_messages:
@@ -1134,30 +1140,33 @@ async def generate_channel_summary_cmd(client, message: Message):
         summary_text += "💡 *જે વિષય પર જવું હોય તેના બ્લુ નામ પર ક્લિક કરો.*\n\n"
         summary_text += "**__Powered By ╰‿╯ ҡσℓเ ⚝__**"
 
-        # 1. Target chat / Topic માં સમરી મોકલીને Pin કરવું
-        try:
-            send_kwargs = {"disable_web_page_preview": True}
-            if target_thread_id:
-                send_kwargs["message_thread_id"] = target_thread_id
+        # ૧. Target Chat / Topic માં સમરી મોકલીને પિન કરવું
+        send_kwargs = {"disable_web_page_preview": True}
+        if target_thread_id:
+            send_kwargs["message_thread_id"] = target_thread_id
 
+        posted = False
+        try:
             ch_post = await client.send_message(target_chat_id, summary_text, **send_kwargs)
             try:
                 await ch_post.pin(both_sides=True)
             except Exception:
                 pass
+            posted = True
         except Exception as e:
-            print(f"Error posting in group/topic via client: {e}")
-            if userbot:
+            print(f"Error via client: {e}")
+
+        if not posted and userbot:
+            try:
+                ch_post2 = await userbot.send_message(target_chat_id, summary_text, **send_kwargs)
                 try:
-                    ch_post2 = await userbot.send_message(target_chat_id, summary_text, **send_kwargs)
-                    try:
-                        await ch_post2.pin(both_sides=True)
-                    except Exception:
-                        pass
+                    await ch_post2.pin(both_sides=True)
                 except Exception:
                     pass
+            except Exception as e:
+                print(f"Error via userbot: {e}")
 
-        # 2. Private chat માં પણ Summary મોકલવી
+        # ૨. Private chat માં પણ મોકલવી
         await client.send_message(user_id, summary_text, disable_web_page_preview=True)
         await status_msg.delete()
 
@@ -1169,13 +1178,4 @@ async def generate_channel_summary_cmd(client, message: Message):
                 await userbot.stop()
             except Exception:
                 pass
-
-@app.on_message(filters.command("cancel"))
-async def stop_batch(_, message):
-    user_id = message.chat.id
-    if user_id in users_loop and users_loop[user_id]:
-        users_loop[user_id] = False
-        await app.send_message(message.chat.id, "Batch processing has been stopped successfully.")
-    else:
-        await app.send_message(message.chat.id, "No active batch running.")
-        
+                                    
