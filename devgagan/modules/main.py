@@ -497,24 +497,42 @@ async def redeem_code_handler(client, message):
     except Exception as e:
         await message.reply(f"❌ એરર આવી: `{e}`")
 
+# ---------------------------------------------------
+# File Name: main.py
+# Description: Guaranteed Auto Topic Summary with Forum Group Support & Exam Subject Engine
+# Author: Gagan | Custom Mod for: ╰‿╯ ҡσℓเ ⚝
+# ---------------------------------------------------
 
-
-# ==================== HYBRID PRO GUJARAT EXAM SUMMARY SYSTEM (MEGA CHAPTER ENGINE) ====================
-
-import re
+import time
+import random
+import string
 import asyncio
-from pyrogram import filters
-from pyrogram.types import Message
+import re
+from pyrogram import filters, Client
 from devgagan import app
+from config import API_ID, API_HASH, FREEMIUM_LIMIT, PREMIUM_LIMIT, OWNER_ID
+from devgagan.core.get_func import get_msg
+from devgagan.core.func import *
 from devgagan.core.mongo import db
+from pyrogram.errors import FloodWait, MessageNotModified
+from datetime import datetime, timedelta
+from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
+from devgagan.modules.shrink import is_user_verified
 
+async def generate_random_name(length=8):
+    return ''.join(random.choices(string.ascii_lowercase, k=length))
+
+users_loop = {}
+interval_set = {}
+batch_mode = {}
+
+# ==================== HYBRID PRO GUJARAT EXAM SUBJECT & CHAPTER ENGINE ====================
 def detect_real_exam_subject(text: str) -> str:
     if not text:
         return "સામાન્ય વિષય"
 
     t = text.lower()
 
-    # વિષય અને તેના તમામ મહત્વના ચેપ્ટર્સ / કીવર્ડ્સનું વિસ્તૃત લિસ્ટ
     exam_catalog = [
         # --- ૧. ભારતીય અર્થતંત્ર / અર્થશાસ્ત્ર (Economy) ---
         (
@@ -757,13 +775,11 @@ def detect_real_exam_subject(text: str) -> str:
         )
     ]
 
-    # ૧. પેલા વિસ્તૃત લિસ્ટ અને ચેપ્ટર્સ ચેક કરવા
     for keywords, official_name in exam_catalog:
         for kw in keywords:
             if kw in t:
                 return official_name
 
-    # ૨. કેપ્શનમાંથી Topic Name અથવા File Title શોધવું
     for line in text.split("\n"):
         clean_line = line.strip()
         if "topic name" in clean_line.lower():
@@ -778,154 +794,195 @@ def detect_real_exam_subject(text: str) -> str:
 
     return "અન્ય વિષય"
 
+async def check_interval(user_id, freecheck):
+    if freecheck != 1 or await is_user_verified(user_id):
+        return True, None
 
-@app.on_message(filters.command("gen_summary") & filters.private)
-async def generate_channel_summary_cmd(client, message: Message):
-    user_id = message.chat.id
-    target_chat_id = None
-    target_thread_id = None
-
-    if len(message.command) > 1:
-        raw_input = message.command[1].strip()
-        if "/" in raw_input:
-            parts = raw_input.split("/")
-            try:
-                target_chat_id = int(parts[0])
-                target_thread_id = int(parts[1])
-            except ValueError:
-                target_chat_id = parts[0]
+    now = datetime.now()
+    if user_id in interval_set:
+        cooldown_end = interval_set[user_id]
+        if now < cooldown_end:
+            remaining_time = (cooldown_end - now).seconds
+            return False, f"Please wait {remaining_time} seconds(s) before sending another link.\n\n> Hey 👋 You can use /token to use the bot free for 3 hours."
         else:
-            try:
-                target_chat_id = int(raw_input)
-            except ValueError:
-                target_chat_id = raw_input
-    else:
-        user_settings = await db.get_data(user_id)
-        if user_settings and user_settings.get("chat_id"):
-            try:
-                target_chat_id = int(str(user_settings.get("chat_id")).strip())
-            except Exception:
-                target_chat_id = user_settings.get("chat_id")
+            del interval_set[user_id]
 
-    if not target_chat_id:
-        return await message.reply("⚠️ ચેનલ કે ગ્રૂપ ID મળ્યો નથી!\nવાપરો: `/gen_summary -100xxxxxxxxxx` અથવા `/settings` માં સેટ કરો.")
+    return True, None
 
+async def set_interval(user_id, interval_minutes=45):
+    now = datetime.now()
+    interval_set[user_id] = now + timedelta(seconds=interval_minutes)
+
+async def initialize_userbot(user_id):
+    data = await db.get_data(user_id)
+    if data and data.get("session"):
+        try:
+            device = 'iPhone 16 Pro'
+            ub = Client(
+                "userbot",
+                api_id=API_ID,
+                api_hash=API_HASH,
+                device_model=device,
+                session_string=data.get("session")
+            )
+            await ub.start()
+            return ub
+        except Exception as e:
+            print(f"Userbot error: {e}")
+            return None
+    return None
+
+async def is_normal_tg_link(link: str) -> bool:
+    return 't.me/' in link and not any(x in link for x in ['t.me/+', 't.me/c/', 't.me/b/', 'tg://openmessage'])
+
+async def process_and_upload_link(userbot, user_id, msg_id, link, retry_count, message):
+    try:
+        await get_msg(userbot, user_id, msg_id, link, retry_count, message)
+        await asyncio.sleep(4)
+    except Exception as e:
+        print(f"Error in upload: {e}")
+
+@app.on_message(
+    filters.regex(r'https?://(?:www\.)?t\.me/[^\s]+|tg://openmessage\?user_id=\w+&message_id=\d+')
+    & filters.private
+)
+async def single_link(_, message):
+    user_id = message.chat.id
+
+    if await subscribe(_, message) == 1 or user_id in batch_mode:
+        return
+
+    if users_loop.get(user_id, False):
+        await message.reply("You already have an ongoing process. Please wait or use /cancel.")
+        return
+
+    if await chk_user(message, user_id) == 1 and FREEMIUM_LIMIT == 0 and user_id not in OWNER_ID and not await is_user_verified(user_id):
+        await message.reply("Freemium service is not available.")
+        return
+
+    can_proceed, response_message = await check_interval(user_id, await chk_user(message, user_id))
+    if not can_proceed:
+        await message.reply(response_message)
+        return
+
+    users_loop[user_id] = True
+    link = message.text if "tg://openmessage" in message.text else get_link(message.text)
+    msg = await message.reply("Processing...")
     userbot = await initialize_userbot(user_id)
-    scanner_client = userbot if userbot else client
-
-    status_msg = await message.reply(
-        "⚡ **સુપર સ્કેનિંગ ચાલુ છે...**\n" + 
-        ("🔐 પ્રાઈવેટ મોડ (Userbot)" if userbot else "🤖 બોટ મોડ")
-    )
-
-    summary_dict = {}
-    total_files = 0
 
     try:
-        clean_cid = str(target_chat_id).replace("-100", "").replace("-", "")
-        collected_messages = []
-        
-        try:
-            # Topic Thread ID આધારિત સચોટ સ્કેનિંગ
-            history_kwargs = {"chat_id": target_chat_id, "limit": 2500}
-            if target_thread_id:
-                history_kwargs["message_thread_id"] = target_thread_id
-
-            async for msg in scanner_client.get_chat_history(**history_kwargs):
-                if target_thread_id:
-                    m_thread = getattr(msg, "message_thread_id", None) or getattr(msg, "reply_to_top_message_id", None)
-                    if m_thread and m_thread != target_thread_id:
-                        continue
-
-                if msg.video or msg.document:
-                    collected_messages.append(msg)
-        except Exception as scan_err:
-            if "BOT_METHOD_INVALID" in str(scan_err) and not userbot:
-                await status_msg.edit_text(
-                    "⚠️ આ પ્રાઈવેટ ચેનલ/ગ્રૂપ છે!\n"
-                    "ટેલિગ્રામ નિયમ મુજબ પ્રાઈવેટ હિસ્ટ્રી સ્કેન કરવા માટે બોટમાં એકવાર `/login` કરવું જરૂરી છે."
-                )
-                return
-            else:
-                raise scan_err
-
-        if not collected_messages:
-            await status_msg.edit_text("❌ આ ચેનલ/ગ્રૂપ/ટોપિકમાં કોઈ વિડિયો કે PDF મળ્યા નથી.")
-            if userbot:
-                await userbot.stop()
-            return
-
-        collected_messages.reverse()
-
-        for msg in collected_messages:
-            total_files += 1
-            raw_text = msg.caption or msg.text or ""
-            if not raw_text:
-                if msg.video and msg.video.file_name:
-                    raw_text = msg.video.file_name
-                elif msg.document and msg.document.file_name:
-                    raw_text = msg.document.file_name
-
-            # ચેપ્ટર પરથી વિષય ઓળખવો
-            subject_name = detect_real_exam_subject(raw_text)
-
-            is_pdf = bool(msg.document and (msg.document.file_name.lower().endswith('.pdf') if msg.document.file_name else False))
-            is_video = bool(msg.video or (msg.document and "video" in str(msg.document.mime_type)))
-
-            thread_id = getattr(msg, "message_thread_id", None) or target_thread_id
-            if thread_id:
-                jump_url = f"https://t.me/c/{clean_cid}/{thread_id}/{msg.id}"
-            else:
-                jump_url = f"https://t.me/c/{clean_cid}/{msg.id}"
-
-            if subject_name not in summary_dict:
-                summary_dict[subject_name] = {
-                    "first_url": jump_url,
-                    "videos": 0,
-                    "pdfs": 0
-                }
-
-            if is_video:
-                summary_dict[subject_name]["videos"] += 1
-            elif is_pdf:
-                summary_dict[subject_name]["pdfs"] += 1
-
-        summary_text = "📌 **Topic Summary**\n"
-        summary_text += "━━━━━━━━━━━━━━━━━━━━\n\n"
-
-        for subject, stats in summary_dict.items():
-            first_url = stats["first_url"]
-            v = stats["videos"]
-            p = stats["pdfs"]
-            summary_text += f"- [{subject}]({first_url}) 🎥 {v} | 📄 {p}\n\n"
-
-        summary_text += "━━━━━━━━━━━━━━━━━━━━\n"
-        summary_text += f"✅ **કુલ અપલોડ થયેલ ફાઇલો:** `{total_files}`\n"
-        summary_text += "💡 *જે વિષય પર જવું હોય તેના બ્લુ નામ પર ક્લિક કરો.*\n\n"
-        summary_text += "**__Powered By ╰‿╯ ҡσℓเ ⚝__**"
-
-        try:
-            send_kwargs = {"disable_web_page_preview": True}
-            if target_thread_id:
-                send_kwargs["message_thread_id"] = target_thread_id
-
-            ch_post = await client.send_message(target_chat_id, summary_text, **send_kwargs)
-            try:
-                await ch_post.pin(both_sides=True)
-            except Exception:
-                pass
-        except Exception as e:
-            print(f"Error posting in target channel: {e}")
-
-        await client.send_message(user_id, summary_text, disable_web_page_preview=True)
-        await status_msg.delete()
-
+        if await is_normal_tg_link(link):
+            await process_and_upload_link(userbot, user_id, msg.id, link, 0, message)
+            await set_interval(user_id, interval_minutes=45)
+        else:
+            if 't.me/+' in link:
+                await msg.edit_text(await userbot_join(userbot, link))
+            elif any(sub in link for sub in ['t.me/c/', 't.me/b/', '/s/', 'tg://openmessage']):
+                await process_and_upload_link(userbot, user_id, msg.id, link, 0, msg)
+                await set_interval(user_id, interval_minutes=45)
     except Exception as e:
-        await status_msg.edit_text(f"❌ એરર આવી: {e}\nખાતરી કરો કે બોટ તે ચેનલ/ગ્રૂપમાં એડમિન છે.")
+        await msg.edit_text(f"Error: {str(e)}")
     finally:
+        users_loop[user_id] = False
         if userbot:
             try:
                 await userbot.stop()
             except Exception:
                 pass
-                
+        try:
+            await msg.delete()
+        except Exception:
+            pass
+
+@app.on_message(filters.command("batch") & filters.private)
+async def batch_link(_, message):
+    if await subscribe(_, message) == 1:
+        return
+    user_id = message.chat.id
+
+    if users_loop.get(user_id, False):
+        return await app.send_message(message.chat.id, "Batch process already running.")
+
+    freecheck = await chk_user(message, user_id)
+    max_batch_size = PREMIUM_LIMIT if (freecheck != 1 or user_id in OWNER_ID) else (30 if await is_user_verified(user_id) else FREEMIUM_LIMIT)
+
+    for _ in range(3):
+        await app.send_photo(message.chat.id, photo="https://i.postimg.cc/BXkchVpY/image.jpg", caption="Just Copy Post Link And Send it To Me.\n\nજ્યાંથી શરૂ કરવું હોય તે પોસ્ટની લિંક મોકલો:")
+        start = await app.ask(message.chat.id, "🎯 Send The Link For Where I Need To Start Process From \n\n> You Have Only 3 Tries")
+        start_id = start.text.strip()
+        if start_id.split("/")[-1].isdigit():
+            cs = int(start_id.split("/")[-1])
+            break
+    else:
+        return await app.send_message(message.chat.id, "Maximum attempts exceeded.")
+
+    for _ in range(3):
+        num_messages = await app.ask(message.chat.id, f"How many messages do you want to process? 🌝\n> Max limit {max_batch_size}")
+        try:
+            cl = int(num_messages.text.strip())
+            if 1 <= cl <= max_batch_size:
+                break
+        except ValueError:
+            pass
+    else:
+        return await app.send_message(message.chat.id, "Invalid number.")
+
+    join_button = InlineKeyboardButton("Join Channel", url="https://t.me/SRC_PRO")
+    keyboard = InlineKeyboardMarkup([[join_button]])
+
+    pin_msg = await app.send_message(
+        user_id,
+        f"Batch process started ⚡\nProcessing: 0/{cl}\n\n**Powered By ╰‿╯ ҡσℓเ ⚝**",
+        reply_markup=keyboard
+    )
+    try:
+        await pin_msg.pin(both_sides=True)
+    except Exception:
+        pass
+    users_loop[user_id] = True
+
+    try:
+        userbot = await initialize_userbot(user_id)
+
+        for i in range(cs, cs + cl):
+            if not users_loop.get(user_id, False):
+                break
+
+            url = f"{'/'.join(start_id.split('/')[:-1])}/{i}"
+            link = get_link(url)
+
+            if any(x in link for x in ['t.me/b/', 't.me/c/']) and not userbot:
+                await app.send_message(message.chat.id, "⚠️ આ પ્રાઈવેટ ચેનલ છે! કૃપા કરીને પહેલા /login કરો.")
+                break
+
+            msg = await app.send_message(message.chat.id, "Processing...")
+            await process_and_upload_link(userbot, user_id, msg.id, link, 0, message)
+
+            try:
+                await pin_msg.edit_text(
+                    f"Batch process started ⚡\nProcessing: {i - cs + 1}/{cl}\n\n**__Powered By ╰‿╯ ҡσℓเ ⚝__**",
+                    reply_markup=keyboard
+                )
+            except Exception:
+                pass
+
+        await set_interval(user_id, interval_minutes=300)
+        try:
+            await pin_msg.edit_text(
+                f"Batch completed successfully for {cl} messages 🎉\n\n**__Powered By ╰‿╯ ҡσℓเ ⚝__**",
+                reply_markup=keyboard
+            )
+        except Exception:
+            pass
+
+    except Exception as e:
+        await app.send_message(message.chat.id, f"Error: {e}")
+    finally:
+        users_loop.pop(user_id, None)
+        if userbot:
+            try:
+                await userbot.stop()
+            except Exception:
+                pass
+
+# ==================== AUTO TOPIC SCANNER COMMAND (/gen_summary) =========
