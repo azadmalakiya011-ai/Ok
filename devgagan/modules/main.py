@@ -1042,55 +1042,46 @@ async def generate_channel_summary_cmd(client, message: Message):
     seen_ids = set()
 
     try:
-        # ૧. search_messages થી ટોપિક/ચેનલમાંથી સીધા વિડિયો અને ડોક્યુમેન્ટ્સ ફિલ્ટર કરવા
-        for media_filter in [enums.MessagesFilter.VIDEO, enums.MessagesFilter.DOCUMENT]:
-            try:
-                kwargs = {
-                    "chat_id": target_chat_id,
-                    "filter": media_filter,
-                    "limit": 3000
-                }
-                if target_thread_id:
-                    kwargs["message_thread_id"] = target_thread_id
+        # સ્કેનિંગ મેથડ: આખા ગ્રૂપના મેસેજ ખેંચીને Topic ID સાથે મેચ કરવું
+        total_scanned = 0
+        async for msg in scanner_client.get_chat_history(chat_id=target_chat_id, limit=4000):
+            total_scanned += 1
+            
+            # જો Topic ID આપેલો હોય તો ચેક કરો કે મેસેજ તે Topic નો છે કે નહીં
+            if target_thread_id:
+                m_thread = getattr(msg, "message_thread_id", None)
+                reply_to = getattr(msg, "reply_to_message_id", None)
+                top_msg = getattr(msg, "reply_to_top_message_id", None)
 
-                async for msg in scanner_client.search_messages(**kwargs):
-                    if msg.id not in seen_ids:
-                        seen_ids.add(msg.id)
-                        collected_messages.append(msg)
-            except Exception as e:
-                print(f"Search filter error: {e}")
+                # ટેલિગ્રામમાં ટોપિક સાથે જોડાણ તપાસવાની બધી જ શરતો
+                is_match = False
+                if m_thread and int(m_thread) == int(target_thread_id):
+                    is_match = True
+                elif top_msg and int(top_msg) == int(target_thread_id):
+                    is_match = True
+                elif reply_to and int(reply_to) == int(target_thread_id):
+                    is_match = True
+                elif msg.id == int(target_thread_id):
+                    is_match = True
 
-        # ૨. જો search_messages થી કંઈ ન મળે તો get_chat_history વાપરવી
-        if not collected_messages:
-            try:
-                async for msg in scanner_client.get_chat_history(chat_id=target_chat_id, limit=3000):
-                    if target_thread_id:
-                        m_thread = getattr(msg, "message_thread_id", None)
-                        reply_to = getattr(msg, "reply_to_message_id", None)
-                        top_msg = getattr(msg, "reply_to_top_message_id", None)
+                if not is_match:
+                    continue
 
-                        is_in_topic = (
-                            m_thread == target_thread_id or 
-                            top_msg == target_thread_id or 
-                            reply_to == target_thread_id or 
-                            msg.id == target_thread_id
-                        )
-                        if not is_in_topic:
-                            continue
-
-                    if (msg.video or msg.document) and msg.id not in seen_ids:
-                        seen_ids.add(msg.id)
-                        collected_messages.append(msg)
-            except Exception as e:
-                print(f"History scan error: {e}")
+            # જો મેસેજમાં વીડિયો કે ફાઈલ હોય તો લિસ્ટમાં ઉમેરો
+            if (msg.video or msg.document) and msg.id not in seen_ids:
+                seen_ids.add(msg.id)
+                collected_messages.append(msg)
 
         if not collected_messages:
-            await status_msg.edit_text("❌ આ ચેનલ/ગ્રૂપ/ટોપિકમાં કોઈ વિડિયો કે PDF મળ્યા નથી.\n(ખાતરી કરો કે Userbot તે ગ્રૂપમાં જોડાયેલું છે).")
+            await status_msg.edit_text(
+                f"❌ આ ચેનલ/ગ્રૂપમાં કુલ {total_scanned} મેસેજ ચેક કર્યા પણ ટોપિક `{target_thread_id}` માં કોઈ વિડિયો કે PDF મળ્યા નથી.\n"
+                f"ખાતરી કરો કે Topic ID સાચો છે અને બોટ/યુઝરબોટ તે ગ્રૂપમાં છે."
+            )
             if userbot:
                 await userbot.stop()
             return
 
-        # ક્રમ સીધો કરવો (સૌથી પહેલો વિડિયો સૌથી ઉપર)
+        # ક્રમ સીધો કરવો (પહેલો વિડિયો પહેલો રહે)
         collected_messages.reverse()
 
         for msg in collected_messages:
@@ -1126,6 +1117,7 @@ async def generate_channel_summary_cmd(client, message: Message):
             elif is_pdf:
                 summary_dict[subject_name]["pdfs"] += 1
 
+        # Summary text બનાવવું
         summary_text = "📌 **Topic Summary**\n"
         summary_text += "━━━━━━━━━━━━━━━━━━━━\n\n"
 
@@ -1140,7 +1132,7 @@ async def generate_channel_summary_cmd(client, message: Message):
         summary_text += "💡 *જે વિષય પર જવું હોય તેના બ્લુ નામ પર ક્લિક કરો.*\n\n"
         summary_text += "**__Powered By ╰‿╯ ҡσℓเ ⚝__**"
 
-        # ૧. Target Chat / Topic માં સમરી મોકલીને પિન કરવું
+        # ૧. Target Chat / Topic માં મોકલવું અને પિન કરવું
         send_kwargs = {"disable_web_page_preview": True}
         if target_thread_id:
             send_kwargs["message_thread_id"] = target_thread_id
@@ -1153,8 +1145,8 @@ async def generate_channel_summary_cmd(client, message: Message):
             except Exception:
                 pass
             posted = True
-        except Exception as e:
-            print(f"Error via client: {e}")
+        except Exception:
+            pass
 
         if not posted and userbot:
             try:
@@ -1163,10 +1155,10 @@ async def generate_channel_summary_cmd(client, message: Message):
                     await ch_post2.pin(both_sides=True)
                 except Exception:
                     pass
-            except Exception as e:
-                print(f"Error via userbot: {e}")
+            except Exception:
+                pass
 
-        # ૨. Private chat માં પણ મોકલવી
+        # ૨. બોટમાં (Private Chat) મોકલવું
         await client.send_message(user_id, summary_text, disable_web_page_preview=True)
         await status_msg.delete()
 
@@ -1178,4 +1170,4 @@ async def generate_channel_summary_cmd(client, message: Message):
                 await userbot.stop()
             except Exception:
                 pass
-                                    
+                
