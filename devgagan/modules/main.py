@@ -1016,7 +1016,7 @@ async def generate_channel_summary_cmd(client, message: Message):
                 target_chat_id = user_settings.get("chat_id")
 
     if not target_chat_id:
-        return await message.reply("⚠️ ચેનલ કે ગ્રૂપ ID મળ્યો નથી!\nવાપરો: `/gen_summary -100xxxxxxxxxx` અથવા `/gen_summary -100xxxxxxxxxx/670`")
+        return await message.reply("⚠️ ચેનલ કે ગ્રૂપ ID મળ્યો નથી!\nવાપરો: `/gen_summary -100xxxxxxxxxx` અથવા `/gen_summary -100xxxxxxxxxx/26816`")
 
     userbot = await initialize_userbot(user_id)
     scanner_client = userbot if userbot else client
@@ -1035,19 +1035,39 @@ async def generate_channel_summary_cmd(client, message: Message):
         collected_messages = []
         
         try:
-            # get_chat_history માં message_thread_id નથી આવતો એટલે chat_id અને limit જ પાસ થશે
-            async for msg in scanner_client.get_chat_history(chat_id=target_chat_id, limit=3000):
-                # Topic group હોય તો target_thread_id મેચ કરવો
-                if target_thread_id:
-                    msg_thread = getattr(msg, "message_thread_id", None)
-                    if not msg_thread and getattr(msg, "reply_to_top_message_id", None):
-                        msg_thread = msg.reply_to_top_message_id
+            # ૧. જો Topic ID આપેલો હોય તો સીધા તે Topic ની અંદરથી જ મેસેજ ફેચ કરવા
+            if target_thread_id:
+                try:
+                    async for msg in scanner_client.get_chat_history(
+                        chat_id=target_chat_id, 
+                        limit=3000, 
+                        reply_to_message_id=target_thread_id
+                    ):
+                        if msg.video or msg.document:
+                            collected_messages.append(msg)
+                except Exception:
+                    pass
 
-                    if msg_thread != target_thread_id and msg.id != target_thread_id:
-                        continue
+            # ૨. જો ઉપરથી ન મળે તો સામાન્ય ચેટ હિસ્ટ્રીમાંથી ફિલ્ટર કરવું
+            if not collected_messages:
+                async for msg in scanner_client.get_chat_history(chat_id=target_chat_id, limit=3000):
+                    if target_thread_id:
+                        m_thread = getattr(msg, "message_thread_id", None)
+                        reply_to = getattr(msg, "reply_to_message_id", None)
+                        top_msg = getattr(msg, "reply_to_top_message_id", None)
 
-                if msg.video or msg.document:
-                    collected_messages.append(msg)
+                        is_in_topic = (
+                            m_thread == target_thread_id or 
+                            top_msg == target_thread_id or 
+                            reply_to == target_thread_id or 
+                            msg.id == target_thread_id
+                        )
+
+                        if not is_in_topic:
+                            continue
+
+                    if msg.video or msg.document:
+                        collected_messages.append(msg)
 
         except Exception as scan_err:
             if "BOT_METHOD_INVALID" in str(scan_err) and not userbot:
@@ -1114,7 +1134,7 @@ async def generate_channel_summary_cmd(client, message: Message):
         summary_text += "💡 *જે વિષય પર જવું હોય તેના બ્લુ નામ પર ક્લિક કરો.*\n\n"
         summary_text += "**__Powered By ╰‿╯ ҡσℓเ ⚝__**"
 
-        # 1. Target chat / Topic માં મોકલીને પિન કરવું
+        # 1. Target chat / Topic માં સમરી મોકલીને Pin કરવું
         try:
             send_kwargs = {"disable_web_page_preview": True}
             if target_thread_id:
