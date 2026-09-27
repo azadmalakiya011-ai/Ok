@@ -1042,18 +1042,15 @@ async def generate_channel_summary_cmd(client, message: Message):
     seen_ids = set()
 
     try:
-        # સ્કેનિંગ મેથડ: આખા ગ્રૂપના મેસેજ ખેંચીને Topic ID સાથે મેચ કરવું
         total_scanned = 0
-        async for msg in scanner_client.get_chat_history(chat_id=target_chat_id, limit=4000):
+        async for msg in scanner_client.get_chat_history(chat_id=target_chat_id, limit=5000):
             total_scanned += 1
             
-            # જો Topic ID આપેલો હોય તો ચેક કરો કે મેસેજ તે Topic નો છે કે નહીં
             if target_thread_id:
                 m_thread = getattr(msg, "message_thread_id", None)
                 reply_to = getattr(msg, "reply_to_message_id", None)
                 top_msg = getattr(msg, "reply_to_top_message_id", None)
 
-                # ટેલિગ્રામમાં ટોપિક સાથે જોડાણ તપાસવાની બધી જ શરતો
                 is_match = False
                 if m_thread and int(m_thread) == int(target_thread_id):
                     is_match = True
@@ -1067,21 +1064,19 @@ async def generate_channel_summary_cmd(client, message: Message):
                 if not is_match:
                     continue
 
-            # જો મેસેજમાં વીડિયો કે ફાઈલ હોય તો લિસ્ટમાં ઉમેરો
             if (msg.video or msg.document) and msg.id not in seen_ids:
                 seen_ids.add(msg.id)
                 collected_messages.append(msg)
 
         if not collected_messages:
             await status_msg.edit_text(
-                f"❌ આ ચેનલ/ગ્રૂપમાં કુલ {total_scanned} મેસેજ ચેક કર્યા પણ ટોપિક `{target_thread_id}` માં કોઈ વિડિયો કે PDF મળ્યા નથી.\n"
-                f"ખાતરી કરો કે Topic ID સાચો છે અને બોટ/યુઝરબોટ તે ગ્રૂપમાં છે."
+                f"❌ આ ચેનલ/ગ્રૂપમાં કુલ {total_scanned} મેસેજ ચેક કર્યા પણ ટોપિકમાં કોઈ વિડિયો કે PDF મળ્યા નથી."
             )
             if userbot:
                 await userbot.stop()
             return
 
-        # ક્રમ સીધો કરવો (પહેલો વિડિયો પહેલો રહે)
+        # ક્રમ સીધો કરવો (પહેલી ફાઈલ પહેલી રહે)
         collected_messages.reverse()
 
         for msg in collected_messages:
@@ -1098,7 +1093,6 @@ async def generate_channel_summary_cmd(client, message: Message):
             is_pdf = bool(msg.document and (msg.document.file_name.lower().endswith('.pdf') if msg.document.file_name else False))
             is_video = bool(msg.video or (msg.document and "video" in str(msg.document.mime_type)))
 
-            # Jump link generation
             thread_id = getattr(msg, "message_thread_id", None) or target_thread_id
             if thread_id:
                 jump_url = f"https://t.me/c/{clean_cid}/{thread_id}/{msg.id}"
@@ -1117,49 +1111,64 @@ async def generate_channel_summary_cmd(client, message: Message):
             elif is_pdf:
                 summary_dict[subject_name]["pdfs"] += 1
 
-        # Summary text બનાવવું
-        summary_text = "📌 **Topic Summary**\n"
-        summary_text += "━━━━━━━━━━━━━━━━━━━━\n\n"
-
+        # વિષયોની લાઇન તૈયાર કરવી
+        lines = []
         for subject, stats in summary_dict.items():
             first_url = stats["first_url"]
             v = stats["videos"]
             p = stats["pdfs"]
-            summary_text += f"- [{subject}]({first_url}) 🎥 {v} | 📄 {p}\n\n"
+            lines.append(f"- [{subject}]({first_url}) 🎥 {v} | 📄 {p}\n\n")
 
-        summary_text += "━━━━━━━━━━━━━━━━━━━━\n"
-        summary_text += f"✅ **કુલ અપલોડ થયેલ ફાઇલો:** `{total_files}`\n"
-        summary_text += "💡 *જે વિષય પર જવું હોય તેના બ્લુ નામ પર ક્લિક કરો.*\n\n"
-        summary_text += "**__Powered By ╰‿╯ ҡσℓเ ⚝__**"
+        # લંબાઈ મુજબ મેસેજના ટુકડા બનાવવા (મહત્તમ ૨૫૦૦ અક્ષરો)
+        parts = []
+        curr_text = "📌 **Topic Summary**\n━━━━━━━━━━━━━━━━━━━━\n\n"
+        part_no = 1
 
-        # ૧. Target Chat / Topic માં મોકલવું અને પિન કરવું
+        for line in lines:
+            if len(curr_text) + len(line) > 2500:
+                parts.append(curr_text)
+                part_no += 1
+                curr_text = f"📌 **Topic Summary (ભાગ {part_no})**\n━━━━━━━━━━━━━━━━━━━━\n\n" + line
+            else:
+                curr_text += line
+
+        curr_text += "━━━━━━━━━━━━━━━━━━━━\n"
+        curr_text += f"✅ **કુલ અપલોડ થયેલ ફાઇલો:** `{total_files}`\n"
+        curr_text += "💡 *જે વિષય પર જવું હોય તેના બ્લુ નામ પર ક્લિક કરો.*\n\n"
+        curr_text += "**__Powered By ╰‿╯ ҡσℓเ ⚝__**"
+        parts.append(curr_text)
+
+        # મોકલવાના ઓપ્શન્સ
         send_kwargs = {"disable_web_page_preview": True}
         if target_thread_id:
             send_kwargs["message_thread_id"] = target_thread_id
 
-        posted = False
-        try:
-            ch_post = await client.send_message(target_chat_id, summary_text, **send_kwargs)
+        # ગ્રૂપ કે ચેનલમાં બધા ભાગ મોકલવા
+        first_group_msg = None
+        for i, part in enumerate(parts):
+            sent_msg = None
             try:
-                await ch_post.pin(both_sides=True)
+                sent_msg = await client.send_message(target_chat_id, part, **send_kwargs)
             except Exception:
-                pass
-            posted = True
-        except Exception:
-            pass
+                if userbot:
+                    try:
+                        sent_msg = await userbot.send_message(target_chat_id, part, **send_kwargs)
+                    except Exception:
+                        pass
 
-        if not posted and userbot:
-            try:
-                ch_post2 = await userbot.send_message(target_chat_id, summary_text, **send_kwargs)
+            if i == 0 and sent_msg:
+                first_group_msg = sent_msg
                 try:
-                    await ch_post2.pin(both_sides=True)
+                    await first_group_msg.pin(both_sides=True)
                 except Exception:
                     pass
-            except Exception:
-                pass
+            await asyncio.sleep(1)
 
-        # ૨. બોટમાં (Private Chat) મોકલવું
-        await client.send_message(user_id, summary_text, disable_web_page_preview=True)
+        # બોટમાં (Private Chat) પણ ભાગ પાડીને મોકલી દેવું
+        for part in parts:
+            await client.send_message(user_id, part, disable_web_page_preview=True)
+            await asyncio.sleep(1)
+
         await status_msg.delete()
 
     except Exception as e:
