@@ -117,5 +117,31 @@ async def use_redeem_code(code: str, user_id: int):
     return True, f"✅ અભિનંદન! તમારા એકાઉન્ટમાં `{hours}` કલાક માટે પ્રીમિયમ ચાલુ થઈ ગયું છે!\n⏳ પૂર્ણ થવાનો સમય: {expiry.strftime('%Y-%m-%d %I:%M %p')}\n\n**__Powered By ╰‿╯ ҡσℓเ ⚝__**"
     
     
+    # --- Topic Mirror Database Logic ---
+async def save_topic_mirror(source_chat, source_thread, target_chat, target_thread):
+    """બે ટોપિક વચ્ચેનું કનેક્શન ડેટાબેઝમાં સેવ કરવા માટે"""
+    await db.topic_mirrors.update_one(
+        {"source_chat": source_chat, "source_thread": source_thread},
+        {"$set": {
+            "target_chat": target_chat,
+            "target_thread": target_thread
+        }},
+        upsert=True
+    )
+
+async def get_topic_mirror(source_chat, source_thread):
+    """ચેક કરવા માટે કે આ ટોપિક કોઈ બીજા ટોપિક સાથે જોડાયેલો છે કે નહીં"""
+    data = await db.topic_mirrors.find_one({
+        "source_chat": source_chat, 
+        "source_thread": source_thread
+    })
+    return data
+
+async def delete_topic_mirror(source_chat, source_thread):
+    """બે ટોપિક વચ્ચેનું કનેક્શન તોડવા (Cancel) કરવા માટે"""
+    await db.topic_mirrors.delete_one({
+        "source_chat": source_chat, 
+        "source_thread": source_thread
+    })
     
  
