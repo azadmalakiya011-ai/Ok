@@ -2,7 +2,8 @@ import asyncio
 from pyrogram import filters, Client
 from pyrogram.errors import FloodWait
 from devgagan import app
-from config import API_ID, API_HASH, STRING
+from config import API_ID, API_HASH
+from devgagan.core.mongo.db import get_data  # સાચું ફંક્શન ઈમ્પોર્ટ કર્યું
 
 # મેમરીમાં ટોપિકનો રસ્તો યાદ રાખવા માટે
 TOPIC_MAP = {}
@@ -17,16 +18,20 @@ async def ultra_clone_topics(client, message):
     target_chat = int(args[2])
     user_id = message.from_user.id
     
-    if not STRING:
-        return await message.reply("❌ સેશન મળતું નથી! તમારા હોસ્ટિંગ (Koyeb/Render) ના Environment Variables માં STRING ની વેલ્યુ નાખો.")
+    # ડેટાબેઝમાંથી મેમ્બરનું સેશન લાવવાનો સાચો રસ્તો
+    user_data = await get_data(user_id)
+    session = user_data.get("session") if user_data else None
+    
+    if not session:
+        return await message.reply("❌ સેશન નથી મળતું! પહેલા `/login` કમાન્ડ આપીને તમારો નંબર નાખીને લોગીન કરો.")
         
     m = await message.reply("⏳ સિસ્ટમ સ્ટાર્ટ થાય છે... જૂના ગ્રુપના ટોપિક્સ ફેચ (Fetch) કરી રહ્યો છું.")
     
     try:
-        userbot = Client(f"ubot_{user_id}", api_id=API_ID, api_hash=API_HASH, session_string=STRING)
+        userbot = Client(f"ubot_{user_id}", api_id=API_ID, api_hash=API_HASH, session_string=session)
         await userbot.start()
     except Exception as e:
-        return await m.edit(f"❌ લોગીન સ્ટાર્ટ કરવામાં એરર: {e}")
+        return await m.edit(f"❌ લોગીન સ્ટાર્ટ કરવામાં એરર (તમારું સેશન Expire થઈ ગયું હશે, ફરી `/login` કરો): {e}")
 
     index_text = "📁 **All Topics Index:**\n\n"
     TOPIC_MAP[source_chat] = {}
@@ -41,14 +46,14 @@ async def ultra_clone_topics(client, message):
                 topic_link = f"https://t.me/c/{clean_target_id}/{new_topic.id}"
                 index_text += f"🔹 [{topic.title}]({topic_link})\n"
                 
-                await asyncio.sleep(1.5)
+                await asyncio.sleep(1.5) # FloodWait થી બચવા
                 
         index_topic = await client.create_forum_topic(target_chat, "📑 All Topics Index")
         await client.send_message(target_chat, index_text, message_thread_id=index_topic.id, disable_web_page_preview=True)
         
         await m.edit("✅ એકદમ પરફેક્ટ! બધા ટોપિક્સ અને ઇન્ડેક્સ બની ગયા છે.\n\n👉 હવે ડેટા ખેંચવા માટે કમાન્ડ આપો:\n`/startcopy સોર્સ_ID ટાર્ગેટ_ID`")
     except Exception as e:
-        await m.edit(f"❌ ટોપિક બનાવવામાં એરર: {e}")
+        await m.edit(f"❌ ટોપિક બનાવવામાં એરર (ચેક કરો કે શું તમે જૂના ગ્રુપમાં એડ છો?): {e}")
     finally:
         await userbot.stop()
 
@@ -66,13 +71,16 @@ async def ultra_start_copy(client, message):
     if source_chat not in TOPIC_MAP:
         return await message.reply("❌ કોઈ ટોપિક લિસ્ટ મળ્યું નથી! પહેલા `/maketopics` કમાન્ડ ચલાવો.")
         
-    if not STRING:
-        return await message.reply("❌ સેશન મળતું નથી! STRING સેટિંગ ચેક કરો.")
+    user_data = await get_data(user_id)
+    session = user_data.get("session") if user_data else None
+    
+    if not session:
+        return await message.reply("❌ સેશન નથી મળતું! પહેલા `/login` કરો!")
         
     m = await message.reply("🚀 ફાઈલો અને વિડીયો કોપી કરવાનું એન્જિન ચાલુ થઈ ગયું છે... આમાં સમય લાગશે.")
     
     try:
-        userbot = Client(f"ubot_copy_{user_id}", api_id=API_ID, api_hash=API_HASH, session_string=STRING)
+        userbot = Client(f"ubot_copy_{user_id}", api_id=API_ID, api_hash=API_HASH, session_string=session)
         await userbot.start()
     except Exception as e:
         return await m.edit(f"❌ યુઝરબોટ સ્ટાર્ટ પ્રોબ્લેમ: {e}")
