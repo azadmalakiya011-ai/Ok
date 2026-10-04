@@ -1,6 +1,6 @@
 from pyrogram import filters, Client
 from devgagan import app
-from devgagan.core.mongo import save_topic_mirror, delete_topic_mirror
+from devgagan.core.mongo.db import save_topic_mirror, delete_topic_mirror, get_topic_mirror
 
 # કામચલાઉ ડેટા સાચવવા માટે (જ્યાં સુધી યુઝર લિંક ના કરે)
 pending_mirrors = {}
