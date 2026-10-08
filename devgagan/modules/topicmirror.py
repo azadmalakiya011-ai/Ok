@@ -55,7 +55,6 @@ async def make_topics_command(client, message):
     unique_topics = set()
     mapped_topics = {}
     
-    # સ્કેનિંગ
     for i in range(limit):
         msg_id = start_msg_id + i
         try:
@@ -72,7 +71,9 @@ async def make_topics_command(client, message):
         except Exception:
             pass
 
-    # ટોપિક બનાવવા (નવો જુગાડ)
+    # ==========================================
+    # Phase 2: ટોપિક બનાવવા (ફાઇનલ ડીપ-જુગાડ)
+    # ==========================================
     for t_id in unique_topics:
         if t_id == 1:
             mapped_topics[t_id] = None
@@ -83,16 +84,22 @@ async def make_topics_command(client, message):
                     new_topic = await app.create_forum_topic(chat_id=target_chat_id, title=t_name)
                     mapped_topics[t_id] = new_topic.message_thread_id
                 except Exception as e:
-                    if 'channel' in str(e):
-                        from pyrogram.raw.functions.channels import CreateForumTopic
+                    if 'channel' in str(e) or 'CreateForumTopic' in str(e):
                         peer = await app.resolve_peer(target_chat_id)
                         
+                        # 🌟 અસલી ક્લાસને તેના મૂળ રસ્તા પરથી પકડવાની કોશિશ 🌟
+                        try:
+                            from pyrogram.raw.functions.channels.create_forum_topic import CreateForumTopic
+                        except ImportError:
+                            from pyrogram.raw.functions.channels import CreateForumTopic
+                        
+                        # અલગ-અલગ પેરામીટર નાખીને ટ્રાય
                         try:
                             r = await app.invoke(CreateForumTopic(channel=peer, title=t_name))
-                        except Exception:
+                        except TypeError:
                             try:
                                 r = await app.invoke(CreateForumTopic(chat=peer, title=t_name))
-                            except:
+                            except TypeError:
                                 r = await app.invoke(CreateForumTopic(peer=peer, title=t_name))
                         
                         if hasattr(r, 'updates'):
@@ -107,13 +114,14 @@ async def make_topics_command(client, message):
                             mapped_topics[t_id] = 1
                     else:
                         raise e
+                        
                 await app.send_message(user_id, f"✅ નવો ટોપિક '{t_name}' બની ગયો!")
                 await asyncio.sleep(2)
+                
             except Exception as e:
                 await app.send_message(user_id, f"⚠️ ટોપિક {t_id} ના બની શક્યો! Error: {e}")
                 mapped_topics[t_id] = None
 
-    # આગળના કમાન્ડ માટે ડેટા સેવ કરો
     user_mirror_data[user_id] = {
         'source_chat_id': source_chat_id,
         'target_chat_id': target_chat_id,
@@ -176,6 +184,7 @@ async def start_mirror_command(client, message):
             pass
             
     user_chat_ids.pop(user_id, None)
-    user_mirror_data.pop(user_id, None) # ડેટા ક્લીનઅપ
+    user_mirror_data.pop(user_id, None)
     
     await app.send_message(user_id, f"🎉 **Topic Mirroring પૂરું થયું!**\n\n✅ સફળતાપૂર્વક {success} ફાઈલો/મેસેજ ટ્રાન્સફર થયા.")
+                                
