@@ -1,10 +1,19 @@
 import asyncio
-import inspect
+import random
 from pyrogram import filters
 from pyrogram.errors import FloodWait
 from devgagan import app
 from devgagan.modules.main import initialize_userbot
 from devgagan.core.get_func import get_msg, user_chat_ids
+
+# ડાયરેક્ટ API રસ્તો
+try:
+    from pyrogram.raw.functions.channels import CreateForumTopic
+except ImportError:
+    try:
+        from pyrogram.raw.functions.messages import CreateForumTopic
+    except ImportError:
+        CreateForumTopic = None
 
 # બંને કમાન્ડ વચ્ચે ડેટા સાચવવા માટે
 user_mirror_data = {}
@@ -73,7 +82,7 @@ async def make_topics_command(client, message):
             pass
 
     # ==========================================
-    # Phase 2: ટોપિક બનાવવા (Master Auto-Fix)
+    # Phase 2: ટોપિક બનાવવા (random_id સાથે)
     # ==========================================
     for t_id in unique_topics:
         if t_id == 1:
@@ -82,47 +91,36 @@ async def make_topics_command(client, message):
             try:
                 t_name = f"Mirror Topic {t_id}"
                 try:
-                    # સિમ્પલ મેથડ
+                    # સિમ્પલ મેથડ ટ્રાય કરશે
                     new_topic = await app.create_forum_topic(chat_id=target_chat_id, title=t_name)
                     mapped_topics[t_id] = new_topic.message_thread_id
-                except Exception as e:
-                    # જો જૂની એરર આવે તો આપણો સ્માર્ટ જુગાડ ચાલુ થશે
-                    if 'CreateForumTopic' in str(e) or 'unexpected keyword' in str(e) or 'channel' in str(e):
-                        from pyrogram.raw.functions.channels import CreateForumTopic
+                except Exception:
+                    if CreateForumTopic is None:
+                        raise Exception("લાઈબ્રેરીમાં ફાઈલ હજુ પણ ના મળી!")
                         
-                        peer = await app.resolve_peer(target_chat_id)
-                        
-                        # લાઈબ્રેરીના અસલી સિક્રેટ પેરામીટર્સ જાતે વાંચી લેશે
-                        sig = inspect.signature(CreateForumTopic.__init__)
-                        valid_keys = list(sig.parameters.keys())
-                        if 'self' in valid_keys:
-                            valid_keys.remove('self')
-                            
-                        kwargs = {}
-                        for key in valid_keys:
-                            if key in ['channel', 'chat', 'peer', 'group', 'chat_id', 'channel_id']:
-                                kwargs[key] = peer
-                            elif key == 'title':
-                                kwargs[key] = t_name
-                                
+                    peer = await app.resolve_peer(target_chat_id)
+                    
+                    # 🌟 એરર ના આવે તે માટે random_id પાસ કર્યું 🌟
+                    rnd_id = random.randint(100000, 999999999)
+                    
+                    try:
+                        r = await app.invoke(CreateForumTopic(channel=peer, title=t_name, random_id=rnd_id))
+                    except TypeError:
                         try:
-                            r = await app.invoke(CreateForumTopic(**kwargs))
-                        except Exception as inner_e:
-                            # જો હજુ પણ એરર આવે, તો કયા નામ માગે છે તે સીધું મેસેજમાં પ્રિન્ટ કરશે
-                            raise Exception(f"Library wants exactly these args: {valid_keys} | Error: {inner_e}")
-                            
-                        if hasattr(r, 'updates'):
-                            for update in r.updates:
-                                if hasattr(update, 'message') and hasattr(update.message, 'id'):
-                                    mapped_topics[t_id] = update.message.id
-                                    break
-                                elif hasattr(update, 'id'):
-                                    mapped_topics[t_id] = update.id
-                                    break
-                        if t_id not in mapped_topics:
-                            mapped_topics[t_id] = 1
-                    else:
-                        raise e
+                            r = await app.invoke(CreateForumTopic(peer=peer, title=t_name, random_id=rnd_id))
+                        except TypeError:
+                            r = await app.invoke(CreateForumTopic(chat=peer, title=t_name, random_id=rnd_id))
+                        
+                    if hasattr(r, 'updates'):
+                        for update in r.updates:
+                            if hasattr(update, 'message') and hasattr(update.message, 'id'):
+                                mapped_topics[t_id] = update.message.id
+                                break
+                            elif hasattr(update, 'id'):
+                                mapped_topics[t_id] = update.id
+                                break
+                    if t_id not in mapped_topics:
+                        mapped_topics[t_id] = 1
                         
                 await app.send_message(user_id, f"✅ નવો ટોપિક '{t_name}' બની ગયો!")
                 await asyncio.sleep(2)
