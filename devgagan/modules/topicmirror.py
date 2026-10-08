@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 from pyrogram import filters
 from pyrogram.errors import FloodWait
 from devgagan import app
@@ -72,7 +73,7 @@ async def make_topics_command(client, message):
             pass
 
     # ==========================================
-    # Phase 2: ટોપિક બનાવવા (ફાઇનલ ડીપ-જુગાડ)
+    # Phase 2: ટોપિક બનાવવા (Master Auto-Fix)
     # ==========================================
     for t_id in unique_topics:
         if t_id == 1:
@@ -81,27 +82,35 @@ async def make_topics_command(client, message):
             try:
                 t_name = f"Mirror Topic {t_id}"
                 try:
+                    # સિમ્પલ મેથડ
                     new_topic = await app.create_forum_topic(chat_id=target_chat_id, title=t_name)
                     mapped_topics[t_id] = new_topic.message_thread_id
                 except Exception as e:
-                    if 'channel' in str(e) or 'CreateForumTopic' in str(e):
+                    # જો જૂની એરર આવે તો આપણો સ્માર્ટ જુગાડ ચાલુ થશે
+                    if 'CreateForumTopic' in str(e) or 'unexpected keyword' in str(e) or 'channel' in str(e):
+                        from pyrogram.raw.functions.channels import CreateForumTopic
+                        
                         peer = await app.resolve_peer(target_chat_id)
                         
-                        # 🌟 અસલી ક્લાસને તેના મૂળ રસ્તા પરથી પકડવાની કોશિશ 🌟
+                        # લાઈબ્રેરીના અસલી સિક્રેટ પેરામીટર્સ જાતે વાંચી લેશે
+                        sig = inspect.signature(CreateForumTopic.__init__)
+                        valid_keys = list(sig.parameters.keys())
+                        if 'self' in valid_keys:
+                            valid_keys.remove('self')
+                            
+                        kwargs = {}
+                        for key in valid_keys:
+                            if key in ['channel', 'chat', 'peer', 'group', 'chat_id', 'channel_id']:
+                                kwargs[key] = peer
+                            elif key == 'title':
+                                kwargs[key] = t_name
+                                
                         try:
-                            from pyrogram.raw.functions.channels.create_forum_topic import CreateForumTopic
-                        except ImportError:
-                            from pyrogram.raw.functions.channels import CreateForumTopic
-                        
-                        # અલગ-અલગ પેરામીટર નાખીને ટ્રાય
-                        try:
-                            r = await app.invoke(CreateForumTopic(channel=peer, title=t_name))
-                        except TypeError:
-                            try:
-                                r = await app.invoke(CreateForumTopic(chat=peer, title=t_name))
-                            except TypeError:
-                                r = await app.invoke(CreateForumTopic(peer=peer, title=t_name))
-                        
+                            r = await app.invoke(CreateForumTopic(**kwargs))
+                        except Exception as inner_e:
+                            # જો હજુ પણ એરર આવે, તો કયા નામ માગે છે તે સીધું મેસેજમાં પ્રિન્ટ કરશે
+                            raise Exception(f"Library wants exactly these args: {valid_keys} | Error: {inner_e}")
+                            
                         if hasattr(r, 'updates'):
                             for update in r.updates:
                                 if hasattr(update, 'message') and hasattr(update.message, 'id'):
@@ -187,4 +196,4 @@ async def start_mirror_command(client, message):
     user_mirror_data.pop(user_id, None)
     
     await app.send_message(user_id, f"🎉 **Topic Mirroring પૂરું થયું!**\n\n✅ સફળતાપૂર્વક {success} ફાઈલો/મેસેજ ટ્રાન્સફર થયા.")
-                                
+    
