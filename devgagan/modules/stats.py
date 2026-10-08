@@ -1,184 +1,189 @@
-# ---------------------------------------------------
-# File Name: stats.py
-# Description: A Pyrogram bot for downloading files from Telegram channels or groups 
-#              and uploading them back to Telegram.
-# Author: Gagan
-# GitHub: https://github.com/devgaganin/
-# Telegram: https://t.me/team_spy_pro
-# YouTube: https://youtube.com/@dev_gagan
-# Created: 2025-01-11
-# Last Modified: 2025-01-11
-# Version: 2.0.5
-# License: MIT License
-# ---------------------------------------------------
-
-
-import os
-import time
-import sys
-import motor
-from devgagan import app
+import asyncio
 from pyrogram import filters
-from config import OWNER_ID
-from devgagan.core.mongo.users_db import get_users, add_user, get_user
-from devgagan.core.mongo.plans_db import premium_users
-from pyrogram.types import Message
-from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery
-from pyrogram.enums import ChatType, ParseMode
+from pyrogram.errors import FloodWait
+from devgagan import app
+from devgagan.modules.main import initialize_userbot
+from devgagan.core.get_func import get_msg, user_chat_ids
 
+# 🌟 અસલી અને સાચો રસ્તો: channels ની જગ્યાએ messages 🌟
+try:
+    from pyrogram.raw.functions.messages import CreateForumTopic
+except ImportError:
+    CreateForumTopic = None
 
-@app.on_message(filters.command("id"))
-async def id_command(client, message: Message):
-    reply = message.reply_to_message
+# બંને કમાન્ડ વચ્ચે ડેટા સાચવવા માટે
+user_mirror_data = {}
 
-    user = reply.from_user if reply else message.from_user
-    user_id = user.id if user else "N/A"
-    chat_id = message.chat.id
-    msg_id = message.id
-    reply_id = reply.message_id if reply else "N/A"
-
-    text = (
-        f"👤 User ID: `{user_id}`\n"
-        f"💬 Chat ID: `{chat_id}`\n"
-        f"📎 Message ID: `{msg_id}`\n"
-        f"🔁 Reply to Msg ID: `{reply_id}`"
-    )
-
-    await message.reply_text(text, quote=True)
-
-
-start_time = time.time()
-
-@app.on_message(group=10)
-async def chat_watcher_func(_, message):
+# ==========================================
+# કમાન્ડ 1: ખાલી ટોપિક્સ બનાવવા માટે
+# ==========================================
+@app.on_message(filters.command("maketopics") & filters.private)
+async def make_topics_command(client, message):
+    user_id = message.chat.id
+    
     try:
-        if message.from_user:
-            us_in_db = await get_user(message.from_user.id)
-            if not us_in_db:
-                await add_user(message.from_user.id)
-    except:
-        pass
-
-
-
-def time_formatter():
-    minutes, seconds = divmod(int(time.time() - start_time), 60)
-    hours, minutes = divmod(minutes, 60)
-    days, hours = divmod(hours, 24)
-    weeks, days = divmod(days, 7)
-    tmp = (
-        ((str(weeks) + "w:") if weeks else "")
-        + ((str(days) + "d:") if days else "")
-        + ((str(hours) + "h:") if hours else "")
-        + ((str(minutes) + "m:") if minutes else "")
-        + ((str(seconds) + "s") if seconds else "")
-    )
-    if tmp != "":
-        if tmp.endswith(":"):
-            return tmp[:-1]
-        else:
-            return tmp
-    else:
-        return "0 s"
-
-
-@app.on_message(filters.command("stats") & filters.user(OWNER_ID))
-async def stats(client, message):
-    start = time.time()
-    users = len(await get_users())
-    premium = await premium_users()
-    ping = round((time.time() - start) * 1000)
-
-    prem_buttons = []
-    prem_names = []
-
-    for uid in premium:
-        try:
-            u = await client.get_users(uid)
-            name = u.first_name or "User"
-            prem_names.append(name)
-            # જો username હોય તો t.me લિંક, નહીંતર openmessage ID લિંક
-            if u.username:
-                user_url = f"https://t.me/{u.username}"
-            else:
-                user_url = f"tg://openmessage?user_id={uid}"
-            prem_buttons.append([InlineKeyboardButton(f"💎 {name}", url=user_url)])
-        except:
-            prem_names.append(str(uid))
-            prem_buttons.append([InlineKeyboardButton(f"💎 {uid}", url=f"tg://openmessage?user_id={uid}")])
-
-    prem_text = ", ".join(prem_names) if prem_names else "None"
-    reply_markup = InlineKeyboardMarkup(prem_buttons) if prem_buttons else None
-
-    bot_info = await client.get_me()
-    stats_msg = (
-        f"**Stats of [{bot_info.first_name}](https://t.me/{bot_info.username}) :**\n\n"
-        f"🏓 **Ping Pong:** {ping}ms\n\n"
-        f"📊 **Total Users :** `{users}`\n"
-        f"📈 **Premium Users :** `{len(premium)}`\n"
-        f"💎 **Premium Users :** {prem_text}\n"
-        f"⚙️ **Bot Uptime :** `{time_formatter()}`\n\n"
-        f"🎨 **Python Version:** `{sys.version.split()[0]}`\n"
-        f"📑 **Mongo Version:** `{motor.version}`"
-    )
-
-    await message.reply_text(
-        stats_msg, 
-        reply_markup=reply_markup,
-        parse_mode=ParseMode.MARKDOWN, 
-        disable_web_page_preview=True
-    )
-
-
-# /getusers command — OWNER only, private chat
-@app.on_message(filters.command("getusers") & filters.user(OWNER_ID) & filters.private)
-async def getusers_paginated(client, message: Message):
-    users = await get_users()
-    if not users:
-        return await message.reply("🚫 No users found in the database.")
-    await show_users_page(client, message.chat.id, users, page=0)
-
-
-# Pagination callback handler
-@app.on_callback_query(filters.regex(r"^users_page_(\d+)$") & filters.user(OWNER_ID))
-async def paginate_users_callback(client, query: CallbackQuery):
-    page = int(query.matches[0].group(1))
-    users = await get_users()
-    await show_users_page(client, query.message.chat.id, users, page, query)
-
-
-# Helper: show paginated user list
-async def show_users_page(client, chat_id, users, page=0, query=None):
-    users_per_page = 20
-    start = page * users_per_page
-    end = start + users_per_page
-    user_chunk = users[start:end]
-
-    lines = []
-    for uid in user_chunk:
-        try:
-            user = await client.get_users(uid)
-            name = f"{user.first_name or ''} {user.last_name or ''}".strip() or str(uid)
-            name = name.replace('[', '').replace(']', '')  # Avoid markdown conflicts
-            mention = f"[`{name}`](tg://user?id={uid})"
-        except:
-            mention = f"[`{uid}`](tg://user?id={uid})"
-        lines.append(f"• {mention} — `{uid}`")
-
-    text = f"👥 **Users {start+1} - {min(end, len(users))} of {len(users)}**:\n\n" + "\n".join(lines)
-
-    # Pagination buttons
-    buttons = []
-    if start > 0:
-        buttons.append(InlineKeyboardButton("⬅️ Previous", callback_data=f"users_page_{page - 1}"))
-    if end < len(users):
-        buttons.append(InlineKeyboardButton("Next ➡️", callback_data=f"users_page_{page + 1}"))
-
-    markup = InlineKeyboardMarkup([buttons]) if buttons else None
-
-    if query:
-        await query.message.edit_text(text, reply_markup=markup, parse_mode=ParseMode.MARKDOWN)
-        await query.answer()
-    else:
-        await client.send_message(chat_id, text, reply_markup=markup, parse_mode=ParseMode.MARKDOWN)
+        source_ask = await app.ask(user_id, "🔗 **સ્ટેપ 1:** સોર્સ ગ્રુપની લિંક મોકલો.\n(દા.ત. `https://t.me/c/123456789/4/50`)")
+        source_link = source_ask.text
         
+        if 't.me/c/' in source_link or 't.me/b/' in source_link:
+            parts = source_link.split('/')
+            if 't.me/c/' in source_link:
+                source_chat_id = int('-100' + parts[parts.index('c') + 1])
+            else:
+                source_chat_id = int(parts[parts.index('b') + 1])
+                
+            start_msg_id = int(parts[-1])
+            
+            if parts[-3] not in ['c', 'b'] and parts[-2].isdigit():
+                extracted_topic_id = int(parts[-2])
+            else:
+                extracted_topic_id = 1
+        else:
+            return await app.send_message(user_id, "❌ ખોટી લિંક! પ્રાઇવેટ ગ્રુપની લિંક જ ચાલશે.")
+
+        target_ask = await app.ask(user_id, "🎯 **સ્ટેપ 2:** નવા ટાર્ગેટ ગ્રુપ નો ID મોકલો.\n(ID -100 થી શરૂ થવો જોઈએ.)")
+        target_chat_id = int(target_ask.text)
+        
+        limit_ask = await app.ask(user_id, "🔢 **સ્ટેપ 3:** કેટલા મેસેજ સ્કેન કરવા છે?\n(દા.ત. 1, 10, 50)")
+        limit = int(limit_ask.text)
+        
+    except Exception as e:
+        return await app.send_message(user_id, f"❌ ભૂલ થઈ: {e}")
+
+    status_msg = await app.send_message(user_id, "⏳ Userbot ચાલુ થાય છે... થોડીવાર રાહ જુઓ.")
+    userbot = await initialize_userbot(user_id)
+    
+    if not userbot:
+        return await status_msg.edit("❌ Userbot ચાલુ ના થયો! પહેલા `/login` કરો.")
+
+    await status_msg.edit("🔍 મેસેજ સ્કેન કરીને નવા ટોપિક્સ બનાવી રહ્યો છું...")
+    
+    unique_topics = set()
+    mapped_topics = {}
+    
+    for i in range(limit):
+        msg_id = start_msg_id + i
+        try:
+            msg = await userbot.get_messages(source_chat_id, msg_id)
+            if not msg or msg.empty or msg.service:
+                continue
+            
+            source_topic_id = msg.message_thread_id
+            if not source_topic_id or source_topic_id == 1:
+                source_topic_id = extracted_topic_id
+            
+            unique_topics.add(source_topic_id)
+            await asyncio.sleep(0.3)
+        except Exception:
+            pass
+
+    # ==========================================
+    # Phase 2: સાચા રસ્તેથી ટોપિક બનાવવા
+    # ==========================================
+    for t_id in unique_topics:
+        if t_id == 1:
+            mapped_topics[t_id] = None
+        else:
+            try:
+                t_name = f"Mirror Topic {t_id}"
+                try:
+                    # જો રેગ્યુલર મેથડ કામ ના કરે
+                    new_topic = await app.create_forum_topic(chat_id=target_chat_id, title=t_name)
+                    mapped_topics[t_id] = new_topic.message_thread_id
+                except Exception:
+                    # તો આપણો સાચો API રસ્તો વાપરશે
+                    if CreateForumTopic is None:
+                        raise Exception("લાઈબ્રેરીમાં ફાઈલ હજુ પણ ના મળી!")
+                        
+                    peer = await app.resolve_peer(target_chat_id)
+                    
+                    try:
+                        r = await app.invoke(CreateForumTopic(channel=peer, title=t_name))
+                    except TypeError:
+                        # જો લાઈબ્રેરી બહુ જૂની હોય તો 'channel' ની જગ્યાએ 'peer' લેશે
+                        r = await app.invoke(CreateForumTopic(peer=peer, title=t_name))
+                        
+                    if hasattr(r, 'updates'):
+                        for update in r.updates:
+                            if hasattr(update, 'message') and hasattr(update.message, 'id'):
+                                mapped_topics[t_id] = update.message.id
+                                break
+                            elif hasattr(update, 'id'):
+                                mapped_topics[t_id] = update.id
+                                break
+                    if t_id not in mapped_topics:
+                        mapped_topics[t_id] = 1
+                        
+                await app.send_message(user_id, f"✅ નવો ટોપિક '{t_name}' બની ગયો!")
+                await asyncio.sleep(2)
+                
+            except Exception as e:
+                await app.send_message(user_id, f"⚠️ ટોપિક {t_id} ના બની શક્યો! Error: {e}")
+                mapped_topics[t_id] = None
+
+    user_mirror_data[user_id] = {
+        'source_chat_id': source_chat_id,
+        'target_chat_id': target_chat_id,
+        'start_msg_id': start_msg_id,
+        'limit': limit,
+        'extracted_topic_id': extracted_topic_id,
+        'mapped_topics': mapped_topics
+    }
+
+    await status_msg.edit("🎉 **બધા ટોપિક્સ બની ગયા છે!**\n\nહવે વિડીયો ડાઉનલોડ/અપલોડ ચાલુ કરવા માટે નીચેનો કમાન્ડ આપો:\n👉 `/startmirror`")
+
+
+# ==========================================
+# કમાન્ડ 2: ફાઈલો ડાઉનલોડ/અપલોડ કરવા માટે
+# ==========================================
+@app.on_message(filters.command("startmirror") & filters.private)
+async def start_mirror_command(client, message):
+    user_id = message.chat.id
+    
+    if user_id not in user_mirror_data:
+        return await app.send_message(user_id, "❌ કોઈ ડેટા મળ્યો નથી! પહેલા `/maketopics` કમાન્ડ વાપરો.")
+        
+    data = user_mirror_data[user_id]
+    status_msg = await app.send_message(user_id, "🚀 **વિડીયો ટ્રાન્સફર ચાલુ થાય છે!**...")
+    
+    userbot = await initialize_userbot(user_id)
+    if not userbot:
+        return await status_msg.edit("❌ Userbot ચાલુ ના થયો! પહેલા `/login` કરો.")
+
+    success = 0
+    for i in range(data['limit']):
+        msg_id = data['start_msg_id'] + i
+        try:
+            msg = await userbot.get_messages(data['source_chat_id'], msg_id)
+            if not msg or msg.empty or msg.service:
+                continue
+            
+            source_topic_id = msg.message_thread_id
+            if not source_topic_id or source_topic_id == 1:
+                source_topic_id = data['extracted_topic_id']
+                
+            target_topic_id = data['mapped_topics'].get(source_topic_id)
+            
+            if target_topic_id:
+                user_chat_ids[user_id] = f"{data['target_chat_id']}/{target_topic_id}"
+            else:
+                user_chat_ids[user_id] = str(data['target_chat_id'])
+
+            temp_msg = await app.send_message(user_id, f"🔄 પ્રોસેસિંગ મેસેજ ID: {msg_id} (Topic: {source_topic_id})...")
+            
+            fake_link = f"https://t.me/c/{str(data['source_chat_id']).replace('-100', '')}/{msg_id}"
+            await get_msg(userbot, user_id, temp_msg.id, fake_link, 0, message)
+            
+            success += 1
+            await asyncio.sleep(4)
+            
+        except FloodWait as e:
+            await asyncio.sleep(e.value + 3)
+        except Exception as e:
+            pass
+            
+    user_chat_ids.pop(user_id, None)
+    user_mirror_data.pop(user_id, None)
+    
+    await app.send_message(user_id, f"🎉 **Topic Mirroring પૂરું થયું!**\n\n✅ સફળતાપૂર્વક {success} ફાઈલો/મેસેજ ટ્રાન્સફર થયા.")
+    
