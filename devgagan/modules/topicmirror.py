@@ -72,15 +72,41 @@ async def make_topics_command(client, message):
         except Exception:
             pass
 
-    # ટોપિક બનાવવા
+    # ટોપિક બનાવવા (નવો જુગાડ)
     for t_id in unique_topics:
         if t_id == 1:
             mapped_topics[t_id] = None
         else:
             try:
                 t_name = f"Mirror Topic {t_id}"
-                new_topic = await app.create_forum_topic(chat_id=target_chat_id, title=t_name)
-                mapped_topics[t_id] = new_topic.message_thread_id
+                try:
+                    new_topic = await app.create_forum_topic(chat_id=target_chat_id, title=t_name)
+                    mapped_topics[t_id] = new_topic.message_thread_id
+                except Exception as e:
+                    if 'channel' in str(e):
+                        from pyrogram.raw.functions.channels import CreateForumTopic
+                        peer = await app.resolve_peer(target_chat_id)
+                        
+                        try:
+                            r = await app.invoke(CreateForumTopic(channel=peer, title=t_name))
+                        except Exception:
+                            try:
+                                r = await app.invoke(CreateForumTopic(chat=peer, title=t_name))
+                            except:
+                                r = await app.invoke(CreateForumTopic(peer=peer, title=t_name))
+                        
+                        if hasattr(r, 'updates'):
+                            for update in r.updates:
+                                if hasattr(update, 'message') and hasattr(update.message, 'id'):
+                                    mapped_topics[t_id] = update.message.id
+                                    break
+                                elif hasattr(update, 'id'):
+                                    mapped_topics[t_id] = update.id
+                                    break
+                        if t_id not in mapped_topics:
+                            mapped_topics[t_id] = 1
+                    else:
+                        raise e
                 await app.send_message(user_id, f"✅ નવો ટોપિક '{t_name}' બની ગયો!")
                 await asyncio.sleep(2)
             except Exception as e:
@@ -150,7 +176,6 @@ async def start_mirror_command(client, message):
             pass
             
     user_chat_ids.pop(user_id, None)
-    user_mirror_data.pop(user_id, None) # ક્લીનઅપ
+    user_mirror_data.pop(user_id, None) # ડેટા ક્લીનઅપ
     
     await app.send_message(user_id, f"🎉 **Topic Mirroring પૂરું થયું!**\n\n✅ સફળતાપૂર્વક {success} ફાઈલો/મેસેજ ટ્રાન્સફર થયા.")
-    
