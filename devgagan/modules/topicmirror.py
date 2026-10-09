@@ -7,29 +7,17 @@ from devgagan import app, sex
 from devgagan.modules.main import initialize_userbot
 from devgagan.core.get_func import get_msg, user_chat_ids
 
-import config
+# તમારો પરમેનન્ટ ઓનર ID
+BOT_OWNER_ID = 7899675722
 
 user_mirror_data = {}
 mirror_cancel_flags = {}
 authorized_mirror_users = set()
 
 def is_authorized(user_id: int) -> bool:
-    uid_str = str(user_id).strip()
-    
-    owner = getattr(config, "OWNER_ID", None)
-    if owner and str(owner).strip() == uid_str:
+    uid = int(user_id)
+    if uid == BOT_OWNER_ID or uid in authorized_mirror_users:
         return True
-        
-    admins = getattr(config, "ADMINS", []) or getattr(config, "SUDO", [])
-    if isinstance(admins, (list, set, tuple)):
-        if any(str(a).strip() == uid_str for a in admins):
-            return True
-    elif str(admins).strip() == uid_str:
-        return True
-
-    if user_id in authorized_mirror_users:
-        return True
-        
     return False
 
 # ----------------- એક્સેસ કંટ્રોલ કમાન્ડ્સ -----------------
@@ -37,7 +25,7 @@ def is_authorized(user_id: int) -> bool:
 @app.on_message(filters.command("addmirror") & filters.private)
 async def add_mirror_access(client, message):
     if not is_authorized(message.chat.id):
-        return await message.reply_text("❌ આ કમાન્ડ વાપરવાની પરવાનગી માત્ર એડમિન પાસે છે.")
+        return await message.reply_text("❌ આ કમાન્ડ વાપરવાની પરવાનગી માત્ર એડમિન પાસે છે.")[span_0](start_span)[span_0](end_span)
     
     args = message.text.strip().split()
     if len(args) < 2 or not args[1].isdigit():
@@ -50,7 +38,7 @@ async def add_mirror_access(client, message):
 @app.on_message(filters.command("delmirror") & filters.private)
 async def del_mirror_access(client, message):
     if not is_authorized(message.chat.id):
-        return await message.reply_text("❌ આ કમાન્ડ વાપરવાની પરવાનગી માત્ર એડમિન પાસે છે.")
+        return await message.reply_text("❌ આ કમાન્ડ વાપરવાની પરવાનગી માત્ર એડમિન પાસે છે.")[span_1](start_span)[span_1](end_span)
     
     args = message.text.strip().split()
     if len(args) < 2 or not args[1].isdigit():
@@ -96,7 +84,7 @@ def parse_tg_link(link: str):
 async def topic_mirror_full(client, message):
     user_id = message.chat.id
     if not is_authorized(user_id):
-        return await message.reply_text("❌ તમારી પાસે આ કમાન્ડ વાપરવાનો એક્સેસ નથી. એડમિનનો સંપર્ક કરો.")
+        return await message.reply_text("❌ તમારી પાસે આ કમાન્ડ વાપરવાનો એક્સેસ નથી. એડમિનનો સંપર્ક કરો.")[span_2](start_span)[span_2](end_span)
 
     try:
         ask = await app.ask(user_id, "🔗 સોર્સ ગ્રુપના કોઈપણ એક મેસેજની લિંક મોકલો:")
@@ -205,7 +193,7 @@ async def topic_mirror_full(client, message):
 async def topic_link_direct(client, message):
     user_id = message.chat.id
     if not is_authorized(user_id):
-        return await message.reply_text("❌ તમારી પાસે આ કમાન્ડ વાપરવાનો એક્સેસ નથી. એડમિનનો સંપર્ક કરો.")
+        return await message.reply_text("❌ તમારી પાસે આ કમાન્ડ વાપરવાનો એક્સેસ નથી. એડમિનનો સંપર્ક કરો.")[span_3](start_span)[span_3](end_span)
 
     try:
         ask = await app.ask(user_id, "🔗 સોર્સ ટોપિકના કોઈપણ મેસેજની લિંક મોકલો:")
@@ -262,7 +250,7 @@ async def topic_link_direct(client, message):
 async def scan_mirror_compare(client, message):
     user_id = message.chat.id
     if not is_authorized(user_id):
-        return await message.reply_text("❌ તમારી પાસે આ કમાન્ડ વાપરવાનો એક્સેસ નથી. એડમિનનો સંપર્ક કરો.")
+        return await message.reply_text("❌ તમારી પાસે આ કમાન્ડ વાપરવાનો એક્સેસ નથી. એડમિનનો સંપર્ક કરો.")[span_4](start_span)[span_4](end_span)
 
     try:
         ask = await app.ask(user_id, "🔗 સોર્સ ટોપિકની લિંક મોકલો:")
@@ -312,7 +300,7 @@ async def scan_mirror_compare(client, message):
 async def sync_mirror_missing(client, message):
     user_id = message.chat.id
     if not is_authorized(user_id):
-        return await message.reply_text("❌ તમારી પાસે આ કમાન્ડ વાપરવાનો એક્સેસ નથી. એડમિનનો સંપર્ક કરો.")
+        return await message.reply_text("❌ તમારી પાસે આ કમાન્ડ વાપરવાનો એક્સેસ નથી. એડમિનનો સંપર્ક કરો.")[span_5](start_span)[span_5](end_span)
 
     try:
         ask = await app.ask(user_id, "🔗 સોર્સ ટોપિકની લિંક મોકલો:")
@@ -374,15 +362,16 @@ async def sync_mirror_missing(client, message):
         except Exception:
             pass
 
-# ૫. /cancel_mirror - ચાલુ મિરરિંગ તાત્કાલિક રોકવા માટે
+# ૫. /cancel_mirror - ચાલુ મિરરિંગ રોકવા માટે
 @app.on_message(filters.command(["cancel_mirror", "stopmirror"]) & filters.private)
 async def cancel_mirror_handler(client, message):
     user_id = message.chat.id
     if not is_authorized(user_id):
-        return await message.reply_text("❌ તમારી પાસે આ કમાન્ડ વાપરવાનો એક્સેસ નથી. એડમિનનો સંપર્ક કરો.")
+        return await message.reply_text("❌ તમારી પાસે આ કમાન્ડ વાપરવાનો એક્સેસ નથી. એડમિનનો સંપર્ક કરો.")[span_6](start_span)[span_6](end_span)
 
     if user_id in mirror_cancel_flags:
         mirror_cancel_flags[user_id] = True
         await message.reply_text("🛑 **મિરરિંગ રોકવાની વિનંતી સ્વીકારી લીધી છે!** હાલની ફાઈલ પૂરી થતાં જ બંધ થઈ જશે.")
     else:
         await message.reply_text("⚠️ હાલમાં કોઈ મિરરિંગ પ્રોસેસ ચાલુ નથી.")
+    
