@@ -28,7 +28,7 @@ async def create_topic(chat_id, title):
 async def make_topics_command(client, message):
     user_id = message.chat.id
     try:
-        ask = await app.ask(user_id, "🔗 સોર્સ ગ્રુપના કોઈપણ એક મેસેજની લિંક મોકલો:")
+        ask = await app.ask(user_id, "🔗 સોર્સ ગ્રુપના કોઈપણ એક મેસેજની લિંક મોકલો:\n(દા.ત. `https://t.me/c/123456789/4/50`)")
         link = ask.text.strip()
         if "t.me/c/" not in link:
             return await app.send_message(user_id, "❌ ખોટી લિંક! પ્રાઇવેટ ગ્રુપની લિંક મોકલો.")
@@ -61,84 +61,84 @@ async def make_topics_command(client, message):
         return await status.edit("❌ યુઝરબોટ ચાલુ ના થયો! પહેલા `/login` કરો.")
 
     try:
-        await status.edit("🔍 જૂના ગ્રુપમાંથી બધા ટોપિક્સ શોધાઈ રહ્યા છે...")
+        await status.edit("🔍 જૂના ગ્રુપમાંથી ટોપિક્સ શોધાઈ રહ્યા છે...")
         topics = {}
 
-        # રસ્તો ૧: સીધા Telethon થી આખા ગ્રુપના બધા જ ટોપિક લિસ્ટ ખેંચવા
-        if sex and sex.is_connected():
-            try:
-                src_entity = await sex.get_input_entity(source_chat_id)
-                forum_res = await sex(GetForumTopicsRequest(
-                    channel=src_entity,
-                    offset_date=0,
-                    offset_id=0,
-                    offset_topic=0,
-                    limit=100
-                ))
-                for t in getattr(forum_res, "topics", []):
-                    t_id = getattr(t, "id", None)
-                    t_title = getattr(t, "title", None)
-                    if t_id and t_title and t_id != 1:
-                        topics[int(t_id)] = t_title
-            except Exception:
-                pass
+        # ૧. સીધા Forum API થી ટોપિક્સ શોધવા
+        try:
+            entity = await userbot.resolve_peer(source_chat_id)
+            forum_res = await userbot.invoke(GetForumTopicsRequest(
+                channel=entity,
+                offset_date=0,
+                offset_id=0,
+                offset_topic=0,
+                limit=100
+            ))
+            for t in getattr(forum_res, "topics", []):
+                t_id = getattr(t, "id", None)
+                t_title = getattr(t, "title", None)
+                if t_id and t_title and int(t_id) != 1:
+                    topics[int(t_id)] = t_title
+        except Exception:
+            pass
 
-        # રસ્તો ૨: જો API થી બધા ના મળ્યા હોય, તો શરૂઆતથી (ID 1 થી) સ્કેન કરવું
-        scan_start = 1
-        scan_end = max(start_msg_id + limit, 100)
-        
-        for mid in range(scan_start, scan_end):
-            try:
-                msg = await userbot.get_messages(source_chat_id, mid)
-                if not msg or getattr(msg, "empty", False):
+        # ૨. જો API થી ના મળે તો રેન્જ સ્કેન કરવી
+        if not topics:
+            for mid in range(start_msg_id, start_msg_id + limit):
+                try:
+                    msg = await userbot.get_messages(source_chat_id, mid)
+                    if not msg or getattr(msg, "empty", False):
+                        continue
+                    
+                    t_thread = getattr(msg, "message_thread_id", None) or extracted_topic_id
+                    if t_thread and int(t_thread) != 1 and int(t_thread) not in topics:
+                        title = None
+                        created = getattr(msg, "forum_topic_created", None)
+                        if created and getattr(created, "title", None):
+                            title = created.title
+                        topics[int(t_thread)] = title or f"Topic {t_thread}"
+                    await asyncio.sleep(0.05)
+                except FloodWait as e:
+                    await asyncio.sleep(e.value + 1)
+                except Exception:
                     continue
-                
-                # ૧. જો ટોપિક બનવાનો મેસેજ મળે
-                created = getattr(msg, "forum_topic_created", None)
-                if created and getattr(created, "title", None):
-                    topics[int(mid)] = created.title
-                
-                # ૨. સાદા મેસેજમાંથી thread ID ચેક કરવું
-                t_thread = getattr(msg, "message_thread_id", None)
-                if t_thread and int(t_thread) not in topics and int(t_thread) != 1:
-                    try:
-                        t_msg = await userbot.get_messages(source_chat_id, int(t_thread))
-                        if t_msg and getattr(t_msg, "forum_topic_created", None):
-                            topics[int(t_thread)] = t_msg.forum_topic_created.title
-                        else:
-                            topics[int(t_thread)] = f"Topic {t_thread}"
-                    except Exception:
-                        topics[int(t_thread)] = f"Topic {t_thread}"
-
-                await asyncio.sleep(0.05)
-            except FloodWait as e:
-                await asyncio.sleep(e.value + 2)
-            except Exception:
-                continue
 
         if not topics:
             return await status.edit("❌ કોઈ ટોપિક મળ્યા નથી.")
 
+        # એક જ મેસેજમાં નાના અક્ષરોમાં લાઈવ લિસ્ટ
         mapped = {}
+        total_topics = len(topics)
+        current_idx = 0
+        summary_lines = ["📋 **ટોપિક લિસ્ટ:**"]
+        progress_msg = await app.send_message(user_id, "🛠️ ટોપિક્સ બનાવવાનું ચાલુ છે...")
+
         for topic_id, title in topics.items():
+            current_idx += 1
             if topic_id == 1:
                 mapped[topic_id] = None
                 continue
             try:
                 new_id = await create_topic(target_chat_id, title)
                 mapped[topic_id] = new_id
-                await app.send_message(user_id, f"✅ સાચા નામથી ટોપિક બન્યો: `{title}` (ID: `{new_id}`)")
+                summary_lines.append(f"`{topic_id}` ➔ `{title[:18]}`")
             except FloodWait as e:
                 await asyncio.sleep(e.value + 2)
                 try:
                     new_id = await create_topic(target_chat_id, title)
                     mapped[topic_id] = new_id
-                except Exception as err:
+                    summary_lines.append(f"`{topic_id}` ➔ `{title[:18]}`")
+                except Exception:
                     mapped[topic_id] = None
-                    await app.send_message(user_id, f"❌ `{title}` ના બની શક્યો: `{err}`")
-            except Exception as e:
+            except Exception:
                 mapped[topic_id] = None
-                await app.send_message(user_id, f"❌ `{title}` નિષ્ફળ: `{e}`")
+
+            if current_idx % 3 == 0 or current_idx == total_topics:
+                text_to_show = "\n".join(summary_lines)
+                try:
+                    await progress_msg.edit(f"> {text_to_show}"[:4000])
+                except Exception:
+                    pass
             await asyncio.sleep(1)
 
         user_mirror_data[user_id] = {
@@ -149,12 +149,13 @@ async def make_topics_command(client, message):
             "extracted_topic_id": extracted_topic_id,
             "mapped_topics": mapped
         }
+        
         created_count = sum(1 for v in mapped.values() if v)
         await status.edit(
-            "🎉 **ટોપિક્સ સફળતાપૂર્વક બની ગયા છે!**\n\n"
-            f"📌 સ્કેન થયેલા ટોપિક્સ: `{len(topics)}`\n"
-            f"✅ બનેલા ટોપિક્સ: `{created_count}`\n\n"
-            "👉 હવે ફાઈલો ટ્રાન્સફર કરવા માટે `/startmirror` મોકલો."
+            f"🎉 **બધા ટોપિક્સ બની ગયા!**\n"
+            f"બનેલા ટોપિક્સ: `{created_count}` / `{total_topics}`\n\n"
+            "👉 વિડીયો અપલોડ કરવા કમાન્ડ આપો:\n"
+            "દા.ત. `/startmirror 28` અથવા `/startmirror 29`"
         )
     finally:
         try:
@@ -169,7 +170,25 @@ async def start_mirror_command(client, message):
     if not data:
         return await app.send_message(user_id, "❌ પહેલા `/maketopics` ચલાવો.")
 
-    status = await app.send_message(user_id, "🚀 ફાઈલ ટ્રાન્સફર શરૂ થાય છે...")
+    args = message.text.strip().split()
+    if len(args) < 2 or not args[1].isdigit():
+        return await app.send_message(
+            user_id, 
+            "⚠️ **સાચો કમાન્ડ વાપરો:**\n\n"
+            "જે ટોપિકના વિડીયો મોકલવા હોય તેનો ID લખો.\n"
+            "દા.ત. `/startmirror 28`"
+        )
+
+    selected_topic_id = int(args[1])
+    target_topic_id = data["mapped_topics"].get(selected_topic_id)
+
+    if not target_topic_id:
+        return await app.send_message(user_id, f"❌ ટોપિક ID `{selected_topic_id}` નો મેળ ટાર્ગેટ ગ્રુપમાં મળ્યો નથી.")
+
+    # ટાર્ગેટ ગ્રુપ અને ચોક્કસ ટોપિક લૉક
+    user_chat_ids[user_id] = f'{data["target_chat_id"]}/{target_topic_id}'
+
+    status = await app.send_message(user_id, f"🚀 **Topic {selected_topic_id}** ના બધા વિડીયો ટ્રાન્સફર થાય છે (અનલિમિટેડ સ્કેન)...")
     userbot = await initialize_userbot(user_id)
     if not userbot:
         return await status.edit("❌ યુઝરબોટ ચાલુ નથી. પહેલા `/login` કરો.")
@@ -177,40 +196,37 @@ async def start_mirror_command(client, message):
     success = 0
     failed = 0
     try:
-        for i in range(data["limit"]):
-            msg_id = data["start_msg_id"] + i
-            try:
-                msg = await userbot.get_messages(data["source_chat_id"], msg_id)
-                if not msg or getattr(msg, "empty", False) or getattr(msg, "service", False):
-                    continue
+        # અનલિમિટેડ સ્કેન: આખા ટોપિકના 500, 1000 કે ગમે તેટલા વિડીયો હોય બધા લઈ લેશે
+        async for msg in userbot.get_chat_history(data["source_chat_id"]):
+            if not msg or getattr(msg, "empty", False) or getattr(msg, "service", False):
+                continue
 
-                source_topic_id = getattr(msg, "message_thread_id", None)
-                if source_topic_id is None:
-                    source_topic_id = data["extracted_topic_id"]
-                else:
-                    source_topic_id = int(source_topic_id)
+            msg_topic = getattr(msg, "message_thread_id", None)
+            
+            # માત્ર આ જ ટોપિકના મેસેજ પ્રોસેસ થશે
+            if msg_topic and int(msg_topic) == selected_topic_id:
+                temp = await app.send_message(user_id, f"🔄 પ્રોસેસિંગ મેસેજ `{msg.id}`...")
+                fake_link = f'https://t.me/c/{str(data["source_chat_id"]).replace("-100", "")}/{msg.id}'
+                
+                try:
+                    await get_msg(userbot, user_id, temp.id, fake_link, 0, message)
+                    success += 1
+                except FloodWait as e:
+                    await asyncio.sleep(e.value + 2)
+                except Exception:
+                    failed += 1
+                finally:
+                    try:
+                        await temp.delete()
+                    except Exception:
+                        pass
 
-                target_topic_id = data["mapped_topics"].get(source_topic_id)
-
-                if target_topic_id:
-                    user_chat_ids[user_id] = f'{data["target_chat_id"]}/{target_topic_id}'
-                else:
-                    user_chat_ids[user_id] = str(data["target_chat_id"])
-
-                temp = await app.send_message(user_id, f"🔄 પ્રોસેસિંગ મેસેજ `{msg_id}`...")
-                fake_link = f'https://t.me/c/{str(data["source_chat_id"]).replace("-100", "")}/{msg_id}'
-                await get_msg(userbot, user_id, temp.id, fake_link, 0, message)
-                success += 1
-                await asyncio.sleep(4)
-            except FloodWait as e:
-                await asyncio.sleep(e.value + 3)
-            except Exception as e:
-                failed += 1
+                await asyncio.sleep(3)
 
         await status.edit(
-            "🎉 **મિરરિંગ પૂરું થયું!**\n\n"
-            f"✅ સફળ: `{success}`\n"
-            f"❌ નિષ્ફળ: `{failed}`"
+            f"🎉 **Topic {selected_topic_id} નું કામ પૂરું થયું!**\n\n"
+            f"✅ સફળ: `{success}` | ❌ નિષ્ફળ: `{failed}`\n\n"
+            "👉 હવે પછીના ટોપિક માટે કમાન્ડ આપો (દા.ત. `/startmirror 29`)."
         )
     finally:
         user_chat_ids.pop(user_id, None)
@@ -218,4 +234,4 @@ async def start_mirror_command(client, message):
             await userbot.stop()
         except Exception:
             pass
-            
+                              
