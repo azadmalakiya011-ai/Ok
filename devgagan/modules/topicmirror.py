@@ -2,7 +2,7 @@ import asyncio
 import time
 from pyrogram import filters
 from pyrogram.errors import FloodWait
-from telethon.tl.functions.messages import CreateForumTopicRequest
+from telethon.tl.functions.messages import CreateForumTopicRequest, GetForumTopicsRequest
 from devgagan import app, sex
 from devgagan.modules.main import initialize_userbot
 from devgagan.core.get_func import get_msg, user_chat_ids
@@ -48,7 +48,7 @@ async def make_topics_command(client, message):
         ask = await app.ask(user_id, "🎯 ટાર્ગેટ ગ્રુપ ID મોકલો (-100 થી શરૂ થતો):")
         target_chat_id = int(ask.text.strip())
 
-        ask = await app.ask(user_id, "🔢 કેટલા મેસેજ સ્કેન કરવા છે?")
+        ask = await app.ask(user_id, "🔢 કેટલા મેસેજ સ્કેન કરવા છે?\n(બધા ટોપિક્સ પકડવા માટે ઓછામાં ઓછા 50 કે 100 લખો):")
         limit = int(ask.text.strip())
         if limit < 1:
             return await app.send_message(user_id, "❌ સંખ્યા 1 થી વધુ હોવી જોઈએ.")
@@ -61,27 +61,41 @@ async def make_topics_command(client, message):
         return await status.edit("❌ યુઝરબોટ ચાલુ ના થયો! પહેલા `/login` કરો.")
 
     try:
-        await status.edit("🔍 મેસેજ સ્કેન થઈ રહ્યા છે...")
+        await status.edit("🔍 જૂના ગ્રુપમાંથી ટોપિક્સ અને સાચા નામો સ્કેન થઈ રહ્યા છે...")
         topics = {}
+        
+        # 🌟 અસલી નામો શોધવાનો પ્રયાસ 🌟
         for i in range(limit):
             msg_id = start_msg_id + i
             try:
                 msg = await userbot.get_messages(source_chat_id, msg_id)
                 if not msg or getattr(msg, "empty", False) or getattr(msg, "service", False):
                     continue
+                
                 topic_id = getattr(msg, "message_thread_id", None)
                 if topic_id is None:
                     topic_id = extracted_topic_id
                 else:
                     topic_id = int(topic_id)
 
-                if topic_id not in topics:
+                if topic_id not in topics or topics[topic_id].startswith("Mirror Topic"):
                     title = None
+                    # જો ટોપિક ક્રિએટ થયેલો મેસેજ મળી જાય
                     created = getattr(msg, "forum_topic_created", None)
                     if created:
                         title = getattr(created, "title", None)
-                    topics[topic_id] = title or f"Mirror Topic {topic_id}"
-                await asyncio.sleep(0.2)
+                    
+                    # જો નામ ના મળે તો સોર્સ ગ્રુપમાંથી એ ટોપિકના પહેલા મેસેજને ચેક કરો
+                    if not title and topic_id != 1:
+                        try:
+                            first_msg = await userbot.get_messages(source_chat_id, topic_id)
+                            if first_msg and getattr(first_msg, "forum_topic_created", None):
+                                title = first_msg.forum_topic_created.title
+                        except Exception:
+                            pass
+
+                    topics[topic_id] = title or f"Topic {topic_id}"
+                await asyncio.sleep(0.1)
             except FloodWait as e:
                 await asyncio.sleep(e.value + 2)
             except Exception:
@@ -98,7 +112,7 @@ async def make_topics_command(client, message):
             try:
                 new_id = await create_topic(target_chat_id, title)
                 mapped[topic_id] = new_id
-                await app.send_message(user_id, f"✅ ટોપિક બન્યો: `{title}` (ID: `{new_id}`)")
+                await app.send_message(user_id, f"✅ સાચા નામથી ટોપિક બન્યો: `{title}` (ID: `{new_id}`)")
             except FloodWait as e:
                 await asyncio.sleep(e.value + 2)
                 try:
@@ -189,4 +203,4 @@ async def start_mirror_command(client, message):
             await userbot.stop()
         except Exception:
             pass
-                
+                      
