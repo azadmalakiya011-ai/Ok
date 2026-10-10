@@ -195,28 +195,53 @@ async def topic_mirror_full(client, message):
         except Exception:
             pass
 
-# ૨. /topiclink - ચોક્કસ ટોપિક-ટુ-ટોપિક ટ્રાન્સફર
+# ૨. /topiclink - સીધો ટોપિક નંબર / ફોર્મેટ લખીને ટ્રાન્સફર
 @app.on_message(filters.command("topiclink") & filters.private)
 async def topic_link_direct(client, message):
     user_id = message.chat.id
     if not is_authorized(user_id):
         return await message.reply_text("❌ તમારી પાસે આ કમાન્ડ વાપરવાનો એક્સેસ નથી.")
 
-    try:
-        ask = await app.ask(user_id, "🔗 સોર્સ ટોપિકના કોઈપણ મેસેજની લિંક મોકલો:")
-        s_link = ask.text.strip()
-        s_chat_id, s_topic_id, _ = parse_tg_link(s_link)
+    text = message.text.strip()
+    cmd_parts = text.split(maxsplit=1)
+    
+    # 🌟 ડાયરેક્ટ ટોપિક નંબર સિસ્ટમ (દા.ત. /topiclink 3 અથવા /topiclink 3 ➔ BASIC) 🌟
+    if len(cmd_parts) > 1:
+        param = cmd_parts[1].strip()
+        match = re.search(r"\b(\d+)\b", param)
+        if not match:
+            return await message.reply_text("⚠️ સાચો ફોર્મેટ વાપરો: `/topiclink 3` અથવા `/topiclink 3 ➔ BASIC`")
 
-        ask = await app.ask(user_id, "🔗 ટાર્ગેટ ટોપિકના કોઈપણ મેસેજની લિંક મોકલો:")
-        t_link = ask.text.strip()
-        t_chat_id, t_topic_id, _ = parse_tg_link(t_link)
-    except Exception as e:
-        return await app.send_message(user_id, f"❌ ભૂલ થઈ: `{e}`")
+        src_topic_id = int(match.group(1))
+        data = user_mirror_data.get(user_id)
+
+        if not data or "mapped_topics" not in data:
+            return await message.reply_text("❌ પહેલા `/topicmirror` રન કરો જેથી ટોપિક્સ સેવ થઈ જાય.")
+
+        tgt_topic_id = data["mapped_topics"].get(src_topic_id)
+        if not tgt_topic_id:
+            return await message.reply_text(f"❌ ટોપિક ID `{src_topic_id}` ટાર્ગેટ ગ્રૂપમાં મળ્યો નથી.")
+
+        s_chat_id = data["source_chat_id"]
+        t_chat_id = data["target_chat_id"]
+        s_topic_id = src_topic_id
+        t_topic_id = tgt_topic_id
+    else:
+        try:
+            ask = await app.ask(user_id, "🔗 સોર્સ ટોપિકના કોઈપણ મેસેજની લિંક મોકલો:")
+            s_link = ask.text.strip()
+            s_chat_id, s_topic_id, _ = parse_tg_link(s_link)
+
+            ask = await app.ask(user_id, "🔗 ટાર્ગેટ ટોપિકના કોઈપણ મેસેજની લિંક મોકલો:")
+            t_link = ask.text.strip()
+            t_chat_id, t_topic_id, _ = parse_tg_link(t_link)
+        except Exception as e:
+            return await app.send_message(user_id, f"❌ ભૂલ થઈ: `{e}`")
 
     mirror_cancel_flags[user_id] = False
     user_chat_ids[user_id] = f"{t_chat_id}/{t_topic_id}"
 
-    status = await app.send_message(user_id, f"🚀 ટોપિક `{s_topic_id}` ➔ `{t_topic_id}` માં ફાઇલ ટ્રાન્સફર ચાલુ છે...")
+    status = await app.send_message(user_id, f"🚀 ટોપિક `{s_topic_id}` ના વિડીયો નવા ગ્રૂપમાં ટ્રાન્સફર થઈ રહ્યા છે...\n(રોકવા માટે `/cancel_mirror` મોકલો)")
     userbot = await initialize_userbot(user_id)
     if not userbot:
         return await status.edit("❌ યુઝરબોટ ચાલુ નથી.")
@@ -235,6 +260,8 @@ async def topic_link_direct(client, message):
                 try:
                     await get_msg(userbot, user_id, temp.id, fake_link, 0, message)
                     success += 1
+                except FloodWait as e:
+                    await asyncio.sleep(e.value + 1)
                 except Exception:
                     pass
                 finally:
@@ -243,7 +270,7 @@ async def topic_link_direct(client, message):
                     except Exception:
                         pass
                 await asyncio.sleep(2)
-        await status.edit(f"🎉 **ટોપિક-ટુ-ટોપિક ટ્રાન્સફર પૂરું થયું!**\n✅ સફળ: `{success}`")
+        await status.edit(f"🎉 **ટોપિક `{s_topic_id}` નું ટ્રાન્સફર પૂરું થયું!**\n✅ સફળ ફાઇલો: `{success}`")
     finally:
         mirror_cancel_flags.pop(user_id, None)
         user_chat_ids.pop(user_id, None)
@@ -251,6 +278,7 @@ async def topic_link_direct(client, message):
             await userbot.stop()
         except Exception:
             pass
+            
 
 # ૩. /scan_mirror - બંને ટોપિકમાં ફાઇલો સરખાવવી
 @app.on_message(filters.command("scan_mirror") & filters.private)
