@@ -102,34 +102,62 @@ async def topic_mirror_full(client, message):
         await status.edit("🔍 શરૂઆતના મેસેજમાંથી સાચા નામ સાથે બધા ટોપિક્સ શોધાઈ રહ્યા છે...")
         topics = {}
 
-    # ૨. જો API થી ના મળે તો સ્માર્ટ હિસ્ટ્રી સ્કેન (વચ્ચેથી ઓટો-બ્રેક સાથે)
+  # ૧. યુઝરબોટ દ્વારા ટેલિગ્રામ સર્વરમાંથી બધા જ ટોપિક્સ (Pagination સાથે) લાવશે
+        if userbot:
+            try:
+                # pyrogram userbot client મારફતે સીધા raw API call
+                from pyrogram.raw.functions.channels import GetForumTopics
+                
+                peer = await userbot.resolve_peer(source_chat_id)
+                offset_date = 0
+                offset_id = 0
+                offset_topic = 0
+                
+                while True:
+                    res = await userbot.invoke(
+                        GetForumTopics(
+                            channel=peer,
+                            offset_date=offset_date,
+                            offset_id=offset_id,
+                            offset_topic=offset_topic,
+                            limit=100
+                        )
+                    )
+                    raw_topics = getattr(res, "topics", [])
+                    if not raw_topics:
+                        break
+                        
+                    for t in raw_topics:
+                        t_id = getattr(t, "id", None)
+                        t_title = getattr(t, "title", None)
+                        if t_id and t_title and int(t_id) != 1:
+                            topics[int(t_id)] = t_title
+                            
+                    # જો 100 કરતાં ઓછા આવ્યા તો બધા ટોપિક્સ પતી ગયા
+                    if len(raw_topics) < 100:
+                        break
+                        
+                    last_topic = raw_topics[-1]
+                    offset_topic = getattr(last_topic, "id", 0)
+                    offset_date = getattr(last_topic, "date", 0)
+                    offset_id = getattr(last_topic, "top_message", 0)
+                    await asyncio.sleep(0.5)
+            except Exception:
+                pass
+
+        # ૨. જો API થી ના મળે તો જ Fallback હિસ્ટ્રી સ્કેન (કોઈ બ્રેક વગર)
         if not topics:
-            consecutive_empty = 0
-            async for msg in userbot.get_chat_history(source_chat_id, limit=5000):
+            async for msg in userbot.get_chat_history(source_chat_id, limit=8000):
                 if not msg or getattr(msg, "empty", False):
                     continue
 
                 th_id = getattr(msg, "message_thread_id", None)
                 created = getattr(msg, "forum_topic_created", None)
 
-                found_new = False
                 if created and getattr(created, "title", None):
-                    if msg.id not in topics:
-                        topics[msg.id] = created.title
-                        found_new = True
-
+                    topics[msg.id] = created.title
                 elif th_id and int(th_id) != 1 and int(th_id) not in topics:
                     topics[int(th_id)] = None
-                    found_new = True
-
-                # Smart break: જો ટોપિક્સ મળી ગયા હોય અને નવા ના મળે તો સ્કેનિંગ રોકી દો
-                if found_new:
-                    consecutive_empty = 0
-                else:
-                    consecutive_empty += 1
-
-                if len(topics) >= 25 and consecutive_empty >= 400:
-                    break
 
             for t_id, name in list(topics.items()):
                 if not name:
@@ -141,6 +169,7 @@ async def topic_mirror_full(client, message):
                             topics[t_id] = f"Topic {t_id}"
                     except Exception:
                         topics[t_id] = f"Topic {t_id}"
+                    
 
         if not topics:
             return await status.edit("❌ ગ્રુપમાંથી કોઈ ટોપિક્સ મળ્યા નહીં. ખાતરી કરો કે યુઝરબોટ એ ગ્રુપમાં છે.")
