@@ -90,8 +90,6 @@ async def topic_mirror_full(client, message):
         ask = await app.ask(user_id, "🎯 ટાર્ગેટ ગ્રુપ ID મોકલો (-100 થી શરૂ થતો):")
         target_chat_id = int(ask.text.strip())
 
-        ask = await app.ask(user_id, "🔢 શરૂઆતના કેટલા મેસેજ સ્કેન કરવા છે? (દા.ત. 100 અથવા 150):")
-        limit = int(ask.text.strip())
     except Exception as e:
         return await app.send_message(user_id, f"❌ ભૂલ થઈ: `{e}`")
 
@@ -104,43 +102,45 @@ async def topic_mirror_full(client, message):
         await status.edit("🔍 શરૂઆતના મેસેજમાંથી સાચા નામ સાથે બધા ટોપિક્સ શોધાઈ રહ્યા છે...")
         topics = {}
 
-        # 🌟 મેસેજ ID 1 થી limit સુધી સ્કેનિંગ, જેથી બધા 26-27 ટોપિક્સ ઝડપાય 🌟
-        msg_ids = list(range(1, limit + 1))
-        # Pyrogram get_messages એકસાથે 50-100 મેસેજ લાવી શકે છે
-        for chunk_start in range(0, len(msg_ids), 50):
-            chunk = msg_ids[chunk_start:chunk_start + 50]
-            try:
-                messages = await userbot.get_messages(source_chat_id, chunk)
-                if not isinstance(messages, list):
-                    messages = [messages]
-                
-                for msg in messages:
-                    if not msg or getattr(msg, "empty", False):
-                        continue
-                    
-                    # જો ટોપિક ક્રિએટ થયેલો મેસેજ હોય
-                    created = getattr(msg, "forum_topic_created", None)
-                    if created and getattr(created, "title", None):
-                        topics[msg.id] = created.title
-                    
-                    # સામાન્ય સર્વિસ અથવા થ્રેડ મેસેજ
-                    th_id = getattr(msg, "message_thread_id", None)
-                    if th_id and int(th_id) != 1 and int(th_id) not in topics:
-                        topics[int(th_id)] = f"Topic {th_id}"
-            except FloodWait as e:
-                await asyncio.sleep(e.value + 1)
-            except Exception:
-                continue
+    # ૨. જો API થી ના મળે તો સ્માર્ટ હિસ્ટ્રી સ્કેન (વચ્ચેથી ઓટો-બ્રેક સાથે)
+        if not topics:
+            consecutive_empty = 0
+            async for msg in userbot.get_chat_history(source_chat_id, limit=5000):
+                if not msg or getattr(msg, "empty", False):
+                    continue
 
-        # જો કોઈ ટોપિકનું નામ ચૂકાઈ ગયું હોય તો તે સ્પેસિફિક મેસેજ ફેચ કરવો
-        missing_titles = [t for t, name in topics.items() if name.startswith("Topic ")]
-        for t_id in missing_titles:
-            try:
-                t_msg = await userbot.get_messages(source_chat_id, t_id)
-                if t_msg and getattr(t_msg, "forum_topic_created", None):
-                    topics[t_id] = t_msg.forum_topic_created.title
-            except Exception:
-                pass
+                th_id = getattr(msg, "message_thread_id", None)
+                created = getattr(msg, "forum_topic_created", None)
+
+                found_new = False
+                if created and getattr(created, "title", None):
+                    if msg.id not in topics:
+                        topics[msg.id] = created.title
+                        found_new = True
+
+                elif th_id and int(th_id) != 1 and int(th_id) not in topics:
+                    topics[int(th_id)] = None
+                    found_new = True
+
+                # Smart break: જો ટોપિક્સ મળી ગયા હોય અને નવા ના મળે તો સ્કેનિંગ રોકી દો
+                if found_new:
+                    consecutive_empty = 0
+                else:
+                    consecutive_empty += 1
+
+                if len(topics) >= 25 and consecutive_empty >= 400:
+                    break
+
+            for t_id, name in list(topics.items()):
+                if not name:
+                    try:
+                        t_msg = await userbot.get_messages(source_chat_id, int(t_id))
+                        if t_msg and getattr(t_msg, "forum_topic_created", None):
+                            topics[t_id] = t_msg.forum_topic_created.title
+                        else:
+                            topics[t_id] = f"Topic {t_id}"
+                    except Exception:
+                        topics[t_id] = f"Topic {t_id}"
 
         if not topics:
             return await status.edit("❌ ગ્રુપમાંથી કોઈ ટોપિક્સ મળ્યા નહીં. ખાતરી કરો કે યુઝરબોટ એ ગ્રુપમાં છે.")
