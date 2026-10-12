@@ -495,6 +495,151 @@ async def sync_mirror_missing(client, message):
                 except Exception:
                     pass
 
-            try:
+                        try:
                 await temp.delete()
-      
+            except Exception:
+                pass
+            await asyncio.sleep(2)
+
+        elapsed = time.time() - start_time
+        mins, secs = int(elapsed // 60), int(elapsed % 60)
+
+        done_msg = (
+            "✅ 𝗖ꪮ𝗺𝗽𝗹𝗲𝘁𝗲 𝗛ꪮ 𝗚𝗮𝘆𝗮 𝗕ꪮ$$ 😎\n\n"
+            f"📁 **નવી સિંક થયેલી ફાઇલો:** `{synced}`\n"
+            f"⏩ **પહેલેથી હાજર ફાઇલો:** `{len(target_file_ids)}`\n"
+            f"⏱ **સમય લાગ્યો:** `{mins}m, {secs}s` ⚡"
+        )
+        await status.edit(done_msg)
+    finally:
+        mirror_cancel_flags.pop(user_id, None)
+        user_chat_ids.pop(user_id, None)
+
+
+# ૫. /cancel_mirror - ચાલુ મિરરિંગ રોકવા માટે
+@app.on_message(filters.command(["cancel_mirror", "stopmirror"]) & filters.private)
+async def cancel_mirror_handler(client, message):
+    user_id = message.chat.id
+    if not is_authorized(user_id):
+        return await message.reply_text("❌ **તમારી પાસે આ કમાન્ડ વાપરવાનો એક્સેસ નથી.**")
+
+    if user_id in mirror_cancel_flags:
+        mirror_cancel_flags[user_id] = True
+        await message.reply_text("🛑 **મિરરિંગ રોકવાની વિનંતી સ્વીકારી લીધી છે!** હાલની ફાઈલ પૂરી થતાં જ બંધ થઈ જશે.")
+    else:
+        await message.reply_text("⚠️ **હાલમાં કોઈ મિરરિંગ પ્રોસેસ ચાલુ નથી.**")
+
+
+# ૬. /mirror_all - બધા ટોપિક્સ ક્રમશઃ સ્માર્ટ સિંક કરવા
+@app.on_message(filters.command("mirror_all") & filters.private)
+async def mirror_all_topics_handler(client, message):
+    user_id = message.chat.id
+    if not is_authorized(user_id):
+        return await message.reply_text("❌ **તમારી પાસે આ કમાન્ડ વાપરવાનો એક્સેસ નથી.**")
+
+    data = user_mirror_data.get(user_id)
+    if not data or "mapped_topics" not in data or not data["mapped_topics"]:
+        return await message.reply_text("❌ પહેલા `/topicmirror` રન કરો જેથી ટોપિક્સ મેપ થઈ જાય.")
+
+    start_time = time.time()
+    s_chat_id = data["source_chat_id"]
+    t_chat_id = data["target_chat_id"]
+    mapped = {int(k): int(v) for k, v in data["mapped_topics"].items() if v}
+
+    mirror_cancel_flags[user_id] = False
+    status = await app.send_message(user_id, f"🚀 **કુલ `{len(mapped)}` ટોપિક્સનું સ્માર્ટ મિરરિંગ શરૂ થઈ રહ્યું છે...**\n(રોકવા માટે `/cancel_mirror` મોકલો)")
+
+    userbot = await initialize_userbot(user_id)
+    if not userbot:
+        return await status.edit("❌ **યુઝરબોટ ચાલુ નથી. પહેલા `/login` કરો.**")
+
+    total_synced_all = 0
+    try:
+        topic_items = sorted(mapped.items())
+        for idx, (s_topic, t_topic) in enumerate(topic_items, 1):
+            if mirror_cancel_flags.get(user_id, False):
+                await app.send_message(user_id, "🛑 **મિરરિંગ રોકી દેવામાં આવ્યું છે.**")
+                break
+
+            user_chat_ids[user_id] = f"{t_chat_id}/{t_topic}"
+
+            last_synced_src_id = 0
+            is_already_done = False
+            async for t_msg in userbot.get_chat_history(t_chat_id, limit=30):
+                th_id = getattr(t_msg, "message_thread_id", None) or t_topic
+                if int(th_id) == int(t_topic):
+                    if t_msg.text and "𝗖ꪮ𝗺𝗽𝗹𝗲𝘁𝗲 𝗛ꪮ 𝗚𝗮𝘆𝗮 𝗕ꪮ$$" in t_msg.text:
+                        is_already_done = True
+                        break
+                    txt = t_msg.caption or t_msg.text or ""
+                    m = re.search(rf"/c/{str(s_chat_id).replace('-100', '')}/(\d+)", txt)
+                    if m:
+                        last_synced_src_id = max(last_synced_src_id, int(m.group(1)))
+
+            if is_already_done:
+                continue
+
+            await status.edit(f"⏳ **પ્રગતિ:** ટોપિક `{idx}/{len(mapped)}` (ID: `{s_topic}`) ના બાકી વિડિયો ટ્રાન્સફર થઈ રહ્યા છે... 🚀")
+
+            topic_video_count = 0
+            src_messages = []
+            async for msg in userbot.get_chat_history(s_chat_id, limit=1000):
+                th_id = getattr(msg, "message_thread_id", None) or s_topic
+                if int(th_id) == int(s_topic) and msg.media:
+                    if msg.id > last_synced_src_id:
+                        src_messages.append(msg)
+
+            src_messages.reverse()
+
+            for msg in src_messages:
+                if mirror_cancel_flags.get(user_id, False):
+                    break
+
+                temp = await app.send_message(user_id, f"🔄 પ્રોસેસિંગ ટોપિક `{s_topic}` - ફાઇલ `{msg.id}`...")
+                fake_link = f'https://t.me/c/{str(s_chat_id).replace("-100", "")}/{msg.id}'
+                try:
+                    await get_msg(userbot, user_id, temp.id, fake_link, 0, message)
+                    total_synced_all += 1
+                    topic_video_count += 1
+                except FloodWait as e:
+                    await asyncio.sleep(e.value + 1)
+                except Exception:
+                    pass
+                finally:
+                    try:
+                        await temp.delete()
+                    except Exception:
+                        pass
+                await asyncio.sleep(2)
+
+            if not mirror_cancel_flags.get(user_id, False):
+                try:
+                    topic_done_msg = (
+                        "✅ 𝗖ꪮ𝗺𝗽𝗹𝗲𝘁𝗲 𝗛ꪮ 𝗚𝗮𝘆𝗮 𝗕ꪮ$$ 😎\n\n"
+                        f"📁 **આ ટોપિક સફળતાપૂર્વક અપલોડ થઈ ગયો છે.**\n"
+                        f"📥 નવી ફાઇલો: `{topic_video_count}`"
+                    )
+                    await app.send_message(
+                        chat_id=t_chat_id,
+                        text=topic_done_msg,
+                        message_thread_id=t_topic
+                    )
+                except Exception:
+                    pass
+
+            await asyncio.sleep(1)
+
+        elapsed = time.time() - start_time
+        mins, secs = int(elapsed // 60), int(elapsed % 60)
+
+        summary_final = (
+            "✅ 𝗖ꪮ𝗺𝗽𝗹𝗲𝘁𝗲 𝗛ꪮ 𝗚𝗮𝘆𝗮 𝗕ꪮ$$ 😎\n\n"
+            f"🎉 **બધા ટોપિક્સનું મિરરિંગ સફળતાપૂર્વક પૂરું થયું!**\n"
+            f"📁 કુલ નવી ફાઇલો: `{total_synced_all}`\n"
+            f"⏱ કુલ સમય: `{mins}m, {secs}s` ⚡"
+        )
+        await status.edit(summary_final)
+    finally:
+        mirror_cancel_flags.pop(user_id, None)
+        user_chat_ids.pop(user_id, None)
+
